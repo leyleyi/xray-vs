@@ -114,8 +114,9 @@ mode_vless() {
     UUID=$(uuid)
     KEYS=$($XRAY_BIN x25519)
     read -rp "节点备注: " REMARK
-    PRI=$(awk '/Private/{print $3}' <<<"$KEYS")
-    PUB=$(awk '/Public/{print $3}' <<<"$KEYS")
+    PRI=$(echo "$KEYS" | grep -i '^PrivateKey' | awk -F ': ' '{print $2}')
+    PBK=$(echo "$KEYS" | grep -i '^Password'   | awk -F ': ' '{print $2}')
+
     SID=$(openssl rand -hex 4)
 
 cat > $CONFIG_FILE <<EOF
@@ -142,7 +143,7 @@ cat > $CONFIG_FILE <<EOF
 }
 EOF
 
-    echo "vless://$UUID@$(ip):$PORT?security=reality&encryption=none&pbk=$PUB&fp=chrome&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid=$SID#$REMARK"
+    echo "vless://$UUID@$(ip):$PORT?security=reality&encryption=none&pbk=$PBK&fp=chrome&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid=$SID#$REMARK"
 }
 
 # ---------------- MODE 2 ----------------
@@ -175,18 +176,12 @@ mode_trojan() {
     read -rp "节点备注: " REMARK
     read -rp "请输入端口（回车随机）: " PORT
     PORT=${PORT:-$(port)}
-
     PASSWORD=$(openssl rand -hex 8)
-
-    # 生成 Reality 密钥对（你的 Xray 输出 PrivateKey + Hash32）
     KEYS=$($XRAY_BIN x25519)
-
-    PRI=$(echo "$KEYS" | grep -i PrivateKey | awk -F ': ' '{print $2}')
-    PUB=$(echo "$KEYS" | grep -i Hash32     | awk -F ': ' '{print $2}')
-
+    PRI=$(echo "$KEYS" | grep -i '^PrivateKey' | awk -F ': ' '{print $2}')
+    PBK=$(echo "$KEYS" | grep -i '^Password'   | awk -F ': ' '{print $2}')
     read -rp "请输入 Reality SNI（默认 addons.mozilla.org）: " SNI
     SNI=${SNI:-addons.mozilla.org}
-
     SID=$(openssl rand -hex 4)
 
 cat > "$CONFIG_FILE" <<EOF
@@ -195,7 +190,10 @@ cat > "$CONFIG_FILE" <<EOF
     "port": $PORT,
     "protocol": "trojan",
     "settings": {
-      "clients": [{ "password": "$PASSWORD", "email": "$REMARK" }]
+      "clients": [{
+        "password": "$PASSWORD",
+        "email": "$REMARK"
+      }]
     },
     "streamSettings": {
       "network": "tcp",
@@ -210,13 +208,15 @@ cat > "$CONFIG_FILE" <<EOF
       }
     }
   }],
-  "outbounds": [{ "protocol": "freedom" }]
+  "outbounds": [{
+    "protocol": "freedom"
+  }]
 }
 EOF
 
     echo
     echo "Trojan Reality 分享链接："
-    echo "trojan://$PASSWORD@$(ip):$PORT?security=reality&sni=$SNI&pbk=$PUB&sid=$SID&type=tcp#$REMARK"
+    echo "trojan://$PASSWORD@$(ip):$PORT?security=reality&sni=$SNI&pbk=$PBK&sid=$SID&type=tcp#$REMARK"
 }
 
 
@@ -279,8 +279,8 @@ mode_vless_relay() {
     PORT=${PORT:-$(port)}
     UUID=$(uuid)
     KEYS=$($XRAY_BIN x25519)
-    PRI=$(awk '/Private/{print $3}' <<<"$KEYS")
-    PUB=$(awk '/Public/{print $3}' <<<"$KEYS")
+    PRI=$(echo "$KEYS" | grep -i '^PrivateKey' | awk -F ': ' '{print $2}')
+    PBK=$(echo "$KEYS" | grep -i '^Password'   | awk -F ': ' '{print $2}')
     SID=$(openssl rand -hex 4)
 
 cat > $CONFIG_FILE <<EOF
@@ -329,7 +329,7 @@ cat > $CONFIG_FILE <<EOF
 }
 EOF
 
-    echo "vless://$UUID@$(ip):$PORT?security=reality&encryption=none&pbk=$PUB&fp=chrome&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid=$SID#$REMARK"
+    echo "vless://$UUID@$(ip):$PORT?security=reality&encryption=none&pbk=$PBK&fp=chrome&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid=$SID#$REMARK"
 }
 
 # ---------------- MODE 6 ----------------
