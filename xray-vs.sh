@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # =====================================================================
-# 一键 Xray 安装脚本 - SS → VLESS Reality 中转链路（每个节点只开一个端口）
-# 模式1: 落地机（只暴露 VLESS + Reality 端口，如 443）
-# 模式2: 中转机（只暴露 SS 端口，如 8443，出站到下游 VLESS Reality）
-# Shadowsocks 使用 2022-blake3-aes-128-gcm（无需 TLS 证书）
-# 支持 Ubuntu/Debian/Alpine/CentOS/Rocky/Alma 等
+# 一键 Xray 安装脚本 - 四种模式
+# 1. VLESS Reality 直连落地机
+# 2. Shadowsocks 2022 直连服务器
+# 3. 中转 - 入站/落地型 (Reality落地 + 额外 SS 入站端口)
+# 4. 中转 - 出站型 (只开 SS 端口，出站到下游 VLESS Reality)
+# Shadowsocks 使用 2022-blake3-aes-128-gcm (无需 TLS 证书)
 # ======================================================================
 
 set -euo pipefail
@@ -74,53 +75,55 @@ gen_ss_psk() {
 }
 
 ask_mode() {
-    echo -e "\n请选择本机角色："
-    echo "1) 落地机（只暴露 VLESS + Reality 端口，如 443）"
-    echo "2) 中转机（只暴露 SS 端口，如 8443，出站到下游 VLESS Reality）"
-    read -rp "输入 1 或 2: " MODE
+    echo -e "\n请选择模式："
+    echo "1) VLESS Reality 直连落地机"
+    echo "2) Shadowsocks 2022 直连服务器"
+    echo "3) 中转 - 入站/落地型 (Reality落地 + 额外 SS 入站端口)"
+    echo "4) 中转 - 出站型 (只开 SS 端口，出站到下游 VLESS Reality)"
+    read -rp "输入 1/2/3/4: " MODE
     MODE=${MODE:-1}
 }
 
-ask_common() {
-    if [[ $MODE == "1" ]]; then
-        read -rp "VLESS Reality 端口 (默认 443): " tmp
-        VLESS_PORT=${tmp:-443}
-        read -rp "Reality SNI/伪装域名 (默认 www.microsoft.com): " tmp
-        VLESS_SNI=${tmp:-"www.microsoft.com"}
+ask_vless_basic() {
+    read -rp "VLESS 端口 (默认 443): " tmp
+    VLESS_PORT=${tmp:-443}
+    read -rp "Reality SNI/伪装域名 (默认 www.microsoft.com): " tmp
+    VLESS_SNI=${tmp:-"www.microsoft.com"}
+}
+
+ask_ss_basic() {
+    read -rp "SS 端口 (默认 8443): " tmp
+    SS_PORT=${tmp:-8443}
+    read -rp "SS PSK (留空自动生成): " input
+    if [[ -z "$input" ]]; then
+        gen_ss_psk
+        info "自动生成 PSK: $SS_PSK"
     else
-        read -rp "SS 监听端口 (默认 8443): " tmp
-        SS_PORT=${tmp:-8443}
-        read -rp "SS PSK (留空自动生成): " input
-        if [[ -z "$input" ]]; then
-            gen_ss_psk
-            info "自动生成 PSK: $SS_PSK"
-        else
-            SS_PSK="$input"
-        fi
+        SS_PSK="$input"
     fi
 }
 
 ask_downstream_vless() {
-    read -rp "下游落地机 IP 或域名: " DOWN_IP
+    read -rp "下游落地机 IP/域名: " DOWN_IP
     [[ -z "$DOWN_IP" ]] && error "不能为空"
     read -rp "下游 VLESS 端口 (默认 443): " tmp
     DOWN_PORT=${tmp:-443}
     read -rp "下游 UUID: " DOWN_UUID
-    [[ -z "$DOWN_UUID" ]] && error "UUID 不能为空"
+    [[ -z "$DOWN_UUID" ]] && error "不能为空"
     read -rp "下游 Public Key (pbk): " DOWN_PBK
-    [[ -z "$DOWN_PBK" ]] && error "Public Key 不能为空"
+    [[ -z "$DOWN_PBK" ]] && error "不能为空"
     read -rp "下游 SNI (默认 www.microsoft.com): " tmp
     DOWN_SNI=${tmp:-"www.microsoft.com"}
 }
 
-create_landing_config() {
+create_vless_direct() {
     cat > "$XRAY_DIR/config.json" <<EOF
 {
   "log": {"loglevel": "warning", "access": "$XRAY_LOG/access.log", "error": "$XRAY_LOG/error.log"},
   "inbounds": [{
     "port": $VLESS_PORT,
     "protocol": "vless",
-    "settings": {"clients": [{"id": "$VLESS_UUID", "flow": "xtls-rprx-vision"}], "decryption": "none"},
+    "settings": {"clients": [{"id": "$VLESS_UUID", "flow": "xtls-rprx-vision"}]},
     "streamSettings": {
       "network": "tcp",
       "security": "reality",
@@ -140,7 +143,63 @@ create_landing_config() {
 EOF
 }
 
-create_relay_config() {
+create_ss_direct() {
+    cat > "$XRAY_DIR/config.json" <<EOF
+{
+  "log": {"loglevel": "warning", "access": "$XRAY_LOG/access.log", "error": "$XRAY_LOG/error.log"},
+  "inbounds": [{
+    "port": $SS_PORT,
+    "protocol": "shadowsocks",
+    "settings": {"method": "$SS_METHOD", "password": "$SS_PSK", "network": "tcp,udp"},
+    "sniffing": {"enabled": true, "destOverride": ["http","tls","quic"]}
+  }],
+  "outbounds": [{"protocol": "freedom"}, {"protocol": "blackhole", "tag": "block"}],
+  "routing": {"rules": [{"type": "field", "ip": ["geoip:private"], "outboundTag": "block"}]}
+}
+EOF
+}
+
+create_relay_inbound() {  # 模式3: 落地 + 额外 SS 入站
+    cat > "$XRAY_DIR/config.json" <<EOF
+{
+  "log": {"loglevel": "warning", "access": "$XRAY_LOG/access.log", "error": "$XRAY_LOG/error.log"},
+  "inbounds": [
+    {
+      "tag": "vless-in",
+      "port": $VLESS_PORT,
+      "protocol": "vless",
+      "settings": {"clients": [{"id": "$VLESS_UUID", "flow": "xtls-rprx-vision"}]},
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "dest": "$VLESS_SNI:443",
+          "serverNames": ["$VLESS_SNI"],
+          "privateKey": "$VLESS_PRIVK",
+          "publicKey": "$VLESS_PBK",
+          "shortIds": [""]
+        }
+      },
+      "sniffing": {"enabled": true, "destOverride": ["http","tls","quic"]}
+    },
+    {
+      "tag": "ss-in",
+      "port": $SS_PORT,
+      "protocol": "shadowsocks",
+      "settings": {"method": "$SS_METHOD", "password": "$SS_PSK", "network": "tcp,udp"},
+      "sniffing": {"enabled": true, "destOverride": ["http","tls","quic"]}
+    }
+  ],
+  "outbounds": [{"protocol": "freedom", "tag": "direct"}, {"protocol": "blackhole", "tag": "block"}],
+  "routing": {"rules": [
+    {"type": "field", "inboundTag": ["vless-in","ss-in"], "outboundTag": "direct"},
+    {"type": "field", "ip": ["geoip:private"], "outboundTag": "block"}
+  ]}
+}
+EOF
+}
+
+create_relay_outbound() {  # 模式4: 只开 SS，出站到下游 VLESS
     cat > "$XRAY_DIR/config.json" <<EOF
 {
   "log": {"loglevel": "warning", "access": "$XRAY_LOG/access.log", "error": "$XRAY_LOG/error.log"},
@@ -152,6 +211,7 @@ create_relay_config() {
   }],
   "outbounds": [
     {
+      "tag": "vless-out",
       "protocol": "vless",
       "settings": {
         "vnext": [{
@@ -169,18 +229,15 @@ create_relay_config() {
           "publicKey": "$DOWN_PBK",
           "shortId": ""
         }
-      },
-      "tag": "to-downstream"
+      }
     },
     {"protocol": "freedom", "tag": "direct"},
     {"protocol": "blackhole", "tag": "block"}
   ],
-  "routing": {
-    "rules": [
-      {"type": "field", "inboundTag": ["ss-inbound"], "outboundTag": "to-downstream"},
-      {"type": "field", "ip": ["geoip:private"], "outboundTag": "block"}
-    ]
-  }
+  "routing": {"rules": [
+    {"type": "field", "inboundTag": ["ss-in"], "outboundTag": "vless-out"},
+    {"type": "field", "ip": ["geoip:private"], "outboundTag": "block"}
+  ]}
 }
 EOF
 }
@@ -206,34 +263,40 @@ EOF
         systemctl daemon-reload
         systemctl enable --now xray
     else
-        warn "非 systemd，请手动启动: $XRAY_BIN run -c $XRAY_DIR/config.json"
+        warn "非 systemd 系统，请手动启动: $XRAY_BIN run -c $XRAY_DIR/config.json"
     fi
 }
 
 show_result() {
     local ip=$(get_ip)
-    if [[ $MODE == "1" ]]; then
-        success "落地机 配置完成（只开端口 $VLESS_PORT）"
-        echo -e "IP: ${GREEN}\( ip \){NC}"
-        echo -e "端口: ${GREEN}\( VLESS_PORT \){NC}"
-        echo -e "UUID: ${GREEN}\( VLESS_UUID \){NC}"
-        echo -e "Public Key: ${GREEN}\( VLESS_PBK \){NC}"
-        echo -e "SNI: ${GREEN}\( VLESS_SNI \){NC}"
-        echo
-        echo "分享链接示例（客户端直连用）："
-        echo "vless://$VLESS_UUID@$ip:$VLESS_PORT?security=reality&encryption=none&pbk=$VLESS_PBK&type=tcp&flow=xtls-rprx-vision&sni=$VLESS_SNI#Reality"
-    else
-        success "中转机 配置完成（只开端口 $SS_PORT）"
-        echo -e "本机 SS 端口: ${GREEN}\( SS_PORT \){NC}"
-        echo -e "PSK: ${GREEN}\( SS_PSK \){NC}"
-        echo -e "下游落地: ${GREEN}$DOWN_IP:\( DOWN_PORT \){NC}"
-        echo
-        echo "客户端 SS 连接信息："
-        echo "服务器: $ip"
-        echo "端口: $SS_PORT"
-        echo "加密: $SS_METHOD"
-        echo "密码: $SS_PSK"
-    fi
+
+    case $MODE in
+        1)
+            success "模式1：VLESS Reality 直连落地机 完成"
+            echo "IP: $ip"
+            echo "端口: $VLESS_PORT"
+            echo "UUID: $VLESS_UUID"
+            echo "pbk: $VLESS_PBK"
+            echo "SNI: $VLESS_SNI"
+            ;;
+        2)
+            success "模式2：Shadowsocks 2022 直连服务器 完成"
+            echo "IP: $ip"
+            echo "端口: $SS_PORT"
+            echo "PSK: $SS_PSK"
+            echo "加密: $SS_METHOD"
+            ;;
+        3)
+            success "模式3：中转 - 入站/落地型 完成"
+            echo "VLESS 落地端口: $VLESS_PORT  UUID: $VLESS_UUID  pbk: $VLESS_PBK  SNI: $VLESS_SNI"
+            echo "额外 SS 入站端口（供上游中转连）：$SS_PORT  PSK: $SS_PSK"
+            ;;
+        4)
+            success "模式4：中转 - 出站型 完成"
+            echo "SS 入站端口（客户端连这里）：$SS_PORT  PSK: $SS_PSK"
+            echo "出站目标：$DOWN_IP:$DOWN_PORT  UUID: $DOWN_UUID  pbk: $DOWN_PBK  SNI: $DOWN_SNI"
+            ;;
+    esac
 }
 
 main() {
@@ -242,21 +305,38 @@ main() {
     install_deps
     download_xray
     ask_mode
-    ask_common
 
-    if [[ $MODE == "1" ]]; then
-        gen_vless_keys
-        create_landing_config
-    else
-        ask_downstream_vless
-        create_relay_config
-    fi
+    case $MODE in
+        1)
+            ask_vless_basic
+            gen_vless_keys
+            create_vless_direct
+            ;;
+        2)
+            ask_ss_basic
+            create_ss_direct
+            ;;
+        3)
+            ask_vless_basic
+            gen_vless_keys
+            ask_ss_basic
+            create_relay_inbound
+            ;;
+        4)
+            ask_ss_basic
+            ask_downstream_vless
+            create_relay_outbound
+            ;;
+        *)
+            error "无效模式，请输入 1/2/3/4"
+            ;;
+    esac
 
     setup_service
     show_result
 
-    success "完成！查看日志：tail -f $XRAY_LOG/error.log"
-    echo "更新 Xray：bash <(curl -Ls https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh)"
+    success "安装完成！日志路径: $XRAY_LOG/error.log"
+    echo "更新 Xray: bash <(curl -Ls https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh)"
 }
 
 main "$@"
