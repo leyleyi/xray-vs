@@ -175,12 +175,18 @@ mode_trojan() {
     read -rp "节点备注: " REMARK
     read -rp "请输入端口（回车随机）: " PORT
     PORT=${PORT:-$(port)}
+
     PASSWORD=$(openssl rand -hex 8)
+
+    # 生成 Reality 密钥对
     KEYS=$($XRAY_BIN x25519)
     PRI=$(awk '/Private/{print $3}' <<<"$KEYS")
     PUB=$(awk '/Public/{print $3}' <<<"$KEYS")
+
     read -rp "请输入 Reality SNI（默认 addons.mozilla.org）: " SNI
     SNI=${SNI:-addons.mozilla.org}
+
+    # 生成 shortId
     SID=$(openssl rand -hex 4)
 
 cat > "$CONFIG_FILE" <<EOF
@@ -189,7 +195,7 @@ cat > "$CONFIG_FILE" <<EOF
     "port": $PORT,
     "protocol": "trojan",
     "settings": {
-      "clients": [{ "password": "$PASSWORD", "email": "$REMARK"}]
+      "clients": [{ "password": "$PASSWORD", "email": "$REMARK" }]
     },
     "streamSettings": {
       "network": "tcp",
@@ -200,7 +206,7 @@ cat > "$CONFIG_FILE" <<EOF
         "xver": 0,
         "serverNames": ["$SNI"],
         "privateKey": "$PRI",
-        "shortIds": ["$SHORT_ID"]
+        "shortIds": ["$SID"]
       }
     }
   }],
@@ -210,9 +216,8 @@ EOF
 
     echo
     echo "Trojan Reality 分享链接："
-    echo "trojan://$PASSWORD@$(ip):$PORT?security=reality&sni=$SNI&pbk=$PUB&sid=$SHORT_ID&type=tcp#$REMARK"
+    echo "trojan://$PASSWORD@$(ip):$PORT?security=reality&sni=$SNI&pbk=$PUB&sid=$SID&type=tcp#$REMARK"
 }
-
 
 # ---------------- MODE 4 ----------------
 mode_ss_relay() {
