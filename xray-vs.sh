@@ -19,6 +19,7 @@ check_sys() { . /etc/os-release || exit 1; OS=$ID; }
 
 # ---------------- 工具 ----------------
 ip() { curl -s https://api.ipify.org || curl -s ifconfig.me; }
+#IP=$(curl -s ipv4.ip.sb || curl -s ifconfig.me)
 port() { shuf -i10000-60000 -n1 2>/dev/null || echo $((RANDOM%50000+10000)); }
 uuid() { cat /proc/sys/kernel/random/uuid; }
 
@@ -110,6 +111,7 @@ mode_vless() {
     PORT=$(port)
     UUID=$(uuid)
     KEYS=$($XRAY_BIN x25519)
+    read -rp "节点备注: " REMARK
     PRI=$(awk '/Private/{print $3}' <<<"$KEYS")
     PUB=$(awk '/Public/{print $3}' <<<"$KEYS")
     SID=$(openssl rand -hex 4)
@@ -138,12 +140,13 @@ cat > $CONFIG_FILE <<EOF
 }
 EOF
 
-    echo "vless://$UUID@$(ip):$PORT?security=reality&encryption=none&pbk=$PUB&fp=chrome&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid=$SID"
+    echo "vless://$UUID@$(ip):$PORT?security=reality&encryption=none&pbk=$PUB&fp=chrome&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid=$SID#$REMARK"
 }
 
 # ---------------- MODE 2 ----------------
 mode_ss() {
     PORT=$(port)
+    read -rp "节点备注: " REMARK
     PASS=$(openssl rand -base64 16 2>/dev/null | tr -d '\n\r') || pass=$(head -c 16 /dev/urandom | base64 2>/dev/null | tr -d '\n\r')
 
 cat > $CONFIG_FILE <<EOF
@@ -161,62 +164,49 @@ cat > $CONFIG_FILE <<EOF
 }
 EOF
 
-    echo "ss://$(echo -n 2022-blake3-aes-128-gcm:$PASS | base64 -w0)@$(ip):$PORT"
+    echo "ss://$(echo -n 2022-blake3-aes-128-gcm:$PASS | base64 -w0)@$(ip):$PORT#$REMARK"
 }
 
 # ---------------- MODE 3 ----------------
 mode_trojan() {
     PORT=$(port)
-
-    PASSWORD=$(cat /proc/sys/kernel/random/uuid || openssl rand -hex 16 | sed 's/\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)/\1\2\3\4-\5\6-\7\8-\9\10-\11\12\13\14\15\16/')
-
+    read -rp "节点备注: " REMARK
+    PASSWORD=$(openssl rand -hex 8)
+    KEYS=$($XRAY_BIN x25519)
+    PRIVATE_KEY=$(echo "$KEYS" | awk '/PrivateKey:/ {print $2}')
+    PUB_KEY=$(echo "$KEYS" | awk '/Password/ {print $2}')
     read -rp "请输入 Reality SNI（默认 addons.mozilla.org）: " SNI
     SNI=${SNI:-addons.mozilla.org}
-
-    KEYPAIR=$(xray x25519)
-    PRIVATE_KEY=$(echo "$KEYPAIR" | awk '/Private key/ {print $3}')
-    PUBLIC_KEY=$(echo "$KEYPAIR"  | awk '/Public key/  {print $3}')
-
     SHORT_ID=$(openssl rand -hex 8)
 
 cat > "$CONFIG_FILE" <<EOF
 {
-  "inbounds": [
-    {
-      "port": $PORT,
-      "protocol": "trojan",
-      "settings": {
-        "clients": [
-          {
-            "password": "$PASSWORD"
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "$SNI:443",
-          "xver": 0,
-          "serverNames": ["$SNI"],
-          "privateKey": "$PRIVATE_KEY",
-          "shortIds": ["$SHORT_ID"]
-        }
+  "inbounds": [{
+    "port": $PORT,
+    "protocol": "trojan",
+    "settings": {
+      "clients": [{ "password": "$PASSWORD", "email": "$REMARK"}]
+    },
+    "streamSettings": {
+      "network": "tcp",
+      "security": "reality",
+      "realitySettings": {
+        "show": false,
+        "dest": "$SNI:443",
+        "xver": 0,
+        "serverNames": ["$SNI"],
+        "privateKey": "$PRIVATE_KEY",
+        "shortIds": ["$SHORT_ID"]
       }
     }
-  ],
-  "outbounds": [
-    {
-      "protocol": "freedom"
-    }
-  ]
+  }],
+  "outbounds": [{ "protocol": "freedom" }]
 }
 EOF
 
     echo
     echo "Trojan Reality 分享链接："
-    echo "trojan://$PASSWORD@$(ip):$PORT?security=reality&sni=$SNI&pbk=$PUBLIC_KEY&sid=$SHORT_ID&type=tcp"
+    echo "trojan://$PASSWORD@$IP:$PORT?security=reality&sni=$SNI&pbk=$PUB_KEY&sid=$SHORT_ID&type=tcp&headerType=none#$REMARK"
 }
 
 
@@ -224,7 +214,7 @@ EOF
 mode_ss_relay() {
     read -rp "输入 vless:// 链接: " LINK
     parse_vless "$LINK"
-
+    read -rp "节点备注: " REMARK
     PORT=$(port)
     PASS=$(openssl rand -base64 16 2>/dev/null | tr -d '\n\r') || pass=$(head -c 16 /dev/urandom | base64 2>/dev/null | tr -d '\n\r')
 
@@ -266,14 +256,14 @@ cat > $CONFIG_FILE <<EOF
 }
 EOF
 
-    echo "ss://$(echo -n 2022-blake3-aes-128-gcm:$PASS | base64 -w0)@$(ip):$PORT"
+    echo "ss://$(echo -n 2022-blake3-aes-128-gcm:$PASS | base64 -w0)@$(ip):$PORT#$REMARK"
 }
 
 # ---------------- MODE 5 ----------------
 mode_vless_relay() {
     read -rp "请输入目标 VLESS Reality Vision 链接: " LINK
     parse_vless "$LINK"
-
+    read -rp "节点备注: " REMARK
     PORT=$(port)
     UUID=$(uuid)
     KEYS=$($XRAY_BIN x25519)
@@ -327,7 +317,7 @@ cat > $CONFIG_FILE <<EOF
 }
 EOF
 
-    echo "vless://$UUID@$(ip):$PORT?security=reality&encryption=none&pbk=$PUB&fp=chrome&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid=$SID"
+    echo "vless://$UUID@$(ip):$PORT?security=reality&encryption=none&pbk=$PUB&fp=chrome&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid=$SID#$REMARK"
 }
 
 # ---------------- MODE 6 ----------------
@@ -370,8 +360,8 @@ service_restart() {
 # ---------------- MODE 8 ----------------
 stop_xray() {
     systemctl strop xray && echo -e "${GREEN}Xray 已停止${PLAIN}"
-  
-  
+
+
 }
 # ---------------- MODE 9 ----------------
 uninstall_xray() {
