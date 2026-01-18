@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # =====================================================================
-# 一键 Xray 安装脚本 - 四种模式
+# 一键 Xray 安装脚本 - 四种模式（修复版，确保模式3完整执行）
 # 1. VLESS Reality 直连落地机
 # 2. Shadowsocks 2022 直连服务器
 # 3. 中转 - 入站/落地型 (Reality落地 + 额外 SS 入站端口)
 # 4. 中转 - 出站型 (只开 SS 端口，出站到下游 VLESS Reality)
-# Shadowsocks 使用 2022-blake3-aes-128-gcm (无需 TLS 证书)
 # ======================================================================
 
 set -euo pipefail
@@ -159,7 +158,7 @@ create_ss_direct() {
 EOF
 }
 
-create_relay_inbound() {  # 模式3: 落地 + 额外 SS 入站
+create_relay_inbound() {
     cat > "$XRAY_DIR/config.json" <<EOF
 {
   "log": {"loglevel": "warning", "access": "$XRAY_LOG/access.log", "error": "$XRAY_LOG/error.log"},
@@ -199,7 +198,7 @@ create_relay_inbound() {  # 模式3: 落地 + 额外 SS 入站
 EOF
 }
 
-create_relay_outbound() {  # 模式4: 只开 SS，出站到下游 VLESS
+create_relay_outbound() {
     cat > "$XRAY_DIR/config.json" <<EOF
 {
   "log": {"loglevel": "warning", "access": "$XRAY_LOG/access.log", "error": "$XRAY_LOG/error.log"},
@@ -244,7 +243,7 @@ EOF
 
 setup_service() {
     mkdir -p "$XRAY_DIR" "$XRAY_LOG"
-    chmod 600 "$XRAY_DIR/config.json"
+    chmod 600 "$XRAY_DIR/config.json" 2>/dev/null || true
 
     if [[ -d /etc/systemd/system ]]; then
         cat > "$SERVICE_FILE" <<EOF
@@ -261,7 +260,7 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 EOF
         systemctl daemon-reload
-        systemctl enable --now xray
+        systemctl enable --now xray || warn "启动服务失败，请手动检查"
     else
         warn "非 systemd 系统，请手动启动: $XRAY_BIN run -c $XRAY_DIR/config.json"
     fi
@@ -336,6 +335,7 @@ main() {
     show_result
 
     success "安装完成！日志路径: $XRAY_LOG/error.log"
+    echo "查看服务状态: systemctl status xray"
     echo "更新 Xray: bash <(curl -Ls https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh)"
 }
 
