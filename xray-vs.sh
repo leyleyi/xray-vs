@@ -177,7 +177,7 @@ mode_trojan() {
     PORT=${PORT:-$(port)}
     PASSWORD=$(openssl rand -hex 8)
     KEYS=$($XRAY_BIN x25519)
-    PRIVATE_KEY=$(echo "$KEYS" | awk '/Private key/ {print $3}')
+    PRI_KEY=$(echo "$KEYS" | awk '/Private key/ {print $3}')
     PUB_KEY=$(echo "$KEYS"  | awk '/Public key/  {print $3}')
     read -rp "请输入 Reality SNI（默认 addons.mozilla.org）: " SNI
     SNI=${SNI:-addons.mozilla.org}
@@ -199,7 +199,7 @@ cat > "$CONFIG_FILE" <<EOF
         "dest": "$SNI:443",
         "xver": 0,
         "serverNames": ["$SNI"],
-        "privateKey": "$PRIVATE_KEY",
+        "privateKey": "$PRI_KEY",
         "shortIds": ["$SHORT_ID"]
       }
     }
