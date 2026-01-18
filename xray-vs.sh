@@ -1,5 +1,4 @@
-```bash
-#!/bin/bash
+#!/usr/bin/env bash
 
 # This script installs and configures Xray on various Linux distributions.
 # Supported: Ubuntu, Debian, Alpine, CentOS.
@@ -261,4 +260,3 @@ esac
 
 create_service
 echo "Xray service started. Replace 'your_ip' and 'your_private_key_here' as needed."
-```
