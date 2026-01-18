@@ -178,10 +178,10 @@ mode_trojan() {
     PASSWORD=$(openssl rand -hex 8)
     KEYS=$($XRAY_BIN x25519)
     PRI_KEY=$(echo "$KEYS" | awk '/Private key/ {print $3}')
-    PUB_KEY=$(echo "$KEYS"  | awk '/Public key/  {print $3}')
+    PUB_KEY=$(echo "$KEYS"  | awk '/Public key/ {print $3}')
     read -rp "请输入 Reality SNI（默认 addons.mozilla.org）: " SNI
     SNI=${SNI:-addons.mozilla.org}
-    SHORT_ID=$(openssl rand -hex 8)
+    SHORT_ID=$(head -c 4 /dev/urandom | xxd -p)
 
 cat > "$CONFIG_FILE" <<EOF
 {
@@ -210,21 +210,7 @@ EOF
 
     echo
     echo "Trojan Reality 分享链接："
-#    echo "trojan://$PASSWORD@$(ip):$PORT?security=reality&sni=$SNI&pbk=$PUB_KEY&sid=$SHORT_ID&type=tcp#$REMARK"
-    ENCODED_REMARK=$(printf '%s' "$REMARK" | jq -sRr @uri)
-ENCODED_SNI=$(printf '%s' "$SNI" | jq -sRr @uri)
-
-echo "trojan://$PASSWORD@$(ip):$PORT\
-?security=reality\
-&type=tcp\
-&sni=$ENCODED_SNI\
-&pbk=$PUB_KEY\
-&sid=$SHORT_ID\
-&flow=xtls-rprx-vision\
-&fp=chrome\
-&encryption=none\
-#$ENCODED_REMARK"
-
+    echo "trojan://$PASSWORD@$(ip):$PORT?security=reality&sni=$SNI&pbk=$PUB_KEY&sid=$SHORT_ID&type=tcp#$REMARK"
 }
 
 
