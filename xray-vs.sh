@@ -177,8 +177,10 @@ mode_trojan() {
     PORT=${PORT:-$(port)}
     PASSWORD=$(openssl rand -hex 8)
     KEYS=$($XRAY_BIN x25519)
-    PRI_KEY=$(echo "$KEYS" | awk '/Private key/ {print $3}')
-    PUB_KEY=$(echo "$KEYS"  | awk '/Public key/ {print $3}')
+#    PRI_KEY=$(echo "$KEYS" | awk '/Private key/ {print $3}')
+#    PUB_KEY=$(echo "$KEYS"  | awk '/Public key/ {print $3}')
+    PRI_KEY=$(echo "$KEYS" | grep "Private key" | awk '{print $NF}')
+    PUB_KEY=$(echo "$KEYS" | grep "Public key" | awk '{print $NF}')
     read -rp "请输入 Reality SNI（默认 addons.mozilla.org）: " SNI
     SNI=${SNI:-addons.mozilla.org}
     SHORT_ID=$(head -c 4 /dev/urandom | xxd -p)
