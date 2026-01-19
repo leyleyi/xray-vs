@@ -38,6 +38,8 @@ deps() {
 
 # ---------------- 安装 Xray ----------------
 install_xray() {
+    mkdir -p /usr/local/etc/xray
+    mkdir -p /usr/local/share/xray
     [ -x "$XRAY_BIN" ] && return
     VER=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r .tag_name)
     ARCH=$(uname -m)
@@ -51,7 +53,6 @@ install_xray() {
       "https://github.com/XTLS/Xray-core/releases/download/$VER/Xray-linux-$A.zip"
     unzip -q "$TMP/xray.zip" -d "$TMP"
     install -m755 "$TMP/xray" "$XRAY_BIN"
-    mkdir -p /usr/local/etc/xray
     rm -rf "$TMP"
 }
 
@@ -113,7 +114,6 @@ mode_vless() {
     PORT=${PORT:-$(port)}
     UUID=$(uuid)
     KEYS=$($XRAY_BIN x25519)
-    read -rp "节点备注: " REMARK
     PRI=$(echo "$KEYS" | grep -i '^PrivateKey' | awk -F ': ' '{print $2}')
     PBK=$(echo "$KEYS" | grep -i '^Password'   | awk -F ': ' '{print $2}')
 
@@ -142,7 +142,7 @@ cat > $CONFIG_FILE <<EOF
   "outbounds":[{"protocol":"freedom"}]
 }
 EOF
-
+    service_restart
     echo "vless://$UUID@$(ip):$PORT?security=reality&encryption=none&pbk=$PBK&fp=chrome&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid=$SID#$REMARK"
 }
 
@@ -168,6 +168,7 @@ cat > $CONFIG_FILE <<EOF
 }
 EOF
 
+    service_restart
     echo "ss://$(echo -n 2022-blake3-aes-128-gcm:$PASS | base64 -w0)@$(ip):$PORT#$REMARK"
 }
 
@@ -214,8 +215,7 @@ cat > "$CONFIG_FILE" <<EOF
 }
 EOF
 
-    echo
-    echo "Trojan Reality 分享链接："
+    service_restart
     echo "trojan://$PASSWORD@$(ip):$PORT?security=reality&sni=$SNI&pbk=$PBK&sid=$SID&type=tcp#$REMARK"
 }
 
@@ -266,7 +266,7 @@ cat > $CONFIG_FILE <<EOF
   }]
 }
 EOF
-
+    service_restart
     echo "ss://$(echo -n 2022-blake3-aes-128-gcm:$PASS | base64 -w0)@$(ip):$PORT#$REMARK"
 }
 
@@ -333,7 +333,7 @@ install_xray
 
 echo "1) VLESS Reality Vision"
 echo "2) Shadowsocks"
-echo "3) Trojan"
+echo "3) Trojan Reality Vision"
 echo "4) Shadowsocks → VLESS Reality"
 echo "5) VLESS Reality → Shadowsocks"
 echo "6) 开启 BBR 加速"
