@@ -11,7 +11,6 @@ PLAIN='\033[0m'
 
 XRAY_BIN="/usr/local/bin/xray"
 CONFIG_FILE="/usr/local/etc/xray/config.json"
-# shellcheck disable=SC2034
 SCRIPT_PATH="/usr/local/bin/exray"
 
 # ---------------- Check ----------------
@@ -194,29 +193,20 @@ uninstall_xray() {
 }
 
 # ---------------- 配置生成函数 ----------------
-# ---------------- 配置生成函数 ----------------
 parse_vless() {
     local link="$1"
     local cleaned_link="${link#*://}"
     cleaned_link="${cleaned_link%\#*}"
-
-    # 提取 UUID
     V_UUID="${cleaned_link%%@*}"
-
-    # 提取地址部分
     local rest="${cleaned_link#*@}"
     local address_part="${rest%%\?*}"
     V_ADDR="${address_part%%:*}"
     V_PORT="${address_part##*:}"
-
-    # 清除之前的变量值
     V_SNI=""
     V_PBK=""
     V_SID=""
     V_FLOW=""
     V_FP=""
-
-    # 使用 sed 提取参数
     local params="${rest#*\?}"
     V_SNI=$(echo "$params" | sed -n 's/.*[&?]sni=\([^&]*\).*/\1/p')
     V_PBK=$(echo "$params" | sed -n 's/.*[&?]pbk=\([^&]*\).*/\1/p')
@@ -249,6 +239,8 @@ mode_vless() {
     read -rp "节点备注: " REMARK
     read -rp "请输入端口(回车随机10000-65535): " PORT
     PORT=${PORT:-$(port)}
+    read -rp "请输入 Reality SNI(默认 addons.mozilla.org): " SNI
+    SNI=${SNI:-addons.mozilla.org}
     UUID=$(uuid)
     KEYS=$($XRAY_BIN x25519)
     PRI=$(echo "$KEYS" | grep -i '^PrivateKey' | awk -F ': ' '{print $2}')
@@ -268,8 +260,8 @@ mode_vless() {
       "network":"tcp",
       "security":"reality",
       "realitySettings":{
-        "dest":"addons.mozilla.org:443",
-        "serverNames":["addons.mozilla.org"],
+        "dest":["$SNI"]":443",
+        "serverNames":["$SNI"],
         "privateKey":"$PRI",
         "shortIds":["$SID"]
       }
@@ -293,8 +285,6 @@ mode_ss() {
     read -rp "节点备注: " REMARK
     read -rp "请输入端口(回车随机10000-65535): " PORT
     PORT=${PORT:-$(port)}
-
-    # 显示加密方式选择菜单
     echo -e "${YELLOW}选择 Shadowsocks 加密方式：${PLAIN}"
     echo "1) 2022-blake3-aes-128-gcm（默认，需32字节密钥）"
     echo "2) 2022-blake3-aes-256-gcm（需32字节密钥）"
@@ -302,10 +292,7 @@ mode_ss() {
     echo "4) aes-256-gcm"
     echo "5) aes-128-gcm"
 
-    # 直接读取用户选择
     read -rp "请输入选项 [1-5，回车=1]: " choice
-
-    # 根据选择设置加密方式
     case "$choice" in
         2) METHOD="2022-blake3-aes-256-gcm" ;;
         3) METHOD="chacha20-ietf-poly1305" ;;
@@ -314,20 +301,14 @@ mode_ss() {
         *) METHOD="2022-blake3-aes-128-gcm" ;;  # 默认
     esac
 
-    # 根据加密方式生成合适的密钥/密码
     if [[ "$METHOD" == 2022-blake3-* ]]; then
-        # 2022系列需要32字节的base64编码密钥
         echo -e "${YELLOW}注意：$METHOD 使用32字节密钥${PLAIN}"
-        PASS=$(openssl rand -base64 32 | tr -d '\n\r=+/' | cut -c1-43)  # 32字节base64
-        echo "生成的密钥: $PASS"
-        echo "密钥长度: ${#PASS}"
+        PASS=$(openssl rand -base64 32 | tr -d '\n\r=+/' | cut -c1-43)
     else
-        # 传统加密方式使用普通密码
         PASS=$(openssl rand -base64 16 | tr -d '\n\r=+/')
         echo "生成的密码: $PASS"
     fi
 
-    # 生成配置
     cat > "$CONFIG_FILE" <<EOF
 {
   "inbounds":[{
@@ -345,12 +326,10 @@ EOF
 
     echo -e "${GREEN}Shadowsocks ($METHOD) 配置已生成${PLAIN}"
 
-    # 生成 Shadowsocks 链接
     SS_BASE64=$(echo -n "$METHOD:$PASS" | base64 -w0)
     SS_LINK="ss://${SS_BASE64}@$(ip):$PORT#$REMARK"
     echo "$SS_LINK"
 
-    # 测试配置文件
     echo -e "${YELLOW}正在检查配置文件语法...${PLAIN}"
     TEST_OUTPUT=$($XRAY_BIN -test -config "$CONFIG_FILE" 2>&1)
     if [ $? -eq 0 ]; then
@@ -418,18 +397,13 @@ EOF
 mode_ss_relay() {
     read -rp "输入VLESS链接: " LINK
     parse_vless "$LINK"
-
-    # 检查必要参数
     if [ -z "$V_UUID" ] || [ -z "$V_ADDR" ] || [ -z "$V_PORT" ]; then
         echo -e "${RED}解析VLESS链接失败，请检查链接格式${PLAIN}"
         return 1
     fi
-
     read -rp "节点备注: " REMARK
     read -rp "请输入本地端口(回车随机10000-65535): " PORT
     PORT=${PORT:-$(port)}
-
-    # 显示加密方式选择菜单
     echo -e "${YELLOW}选择 Shadowsocks 加密方式：${PLAIN}"
     echo "1) 2022-blake3-aes-128-gcm（默认，需32字节密钥）"
     echo "2) 2022-blake3-aes-256-gcm（需32字节密钥）"
@@ -437,10 +411,7 @@ mode_ss_relay() {
     echo "4) aes-256-gcm"
     echo "5) aes-128-gcm"
 
-    # 直接读取用户选择
     read -rp "请输入选项 [1-5，回车=1]: " choice
-
-    # 根据选择设置加密方式
     case "$choice" in
         2) METHOD="2022-blake3-aes-256-gcm" ;;
         3) METHOD="chacha20-ietf-poly1305" ;;
@@ -449,17 +420,11 @@ mode_ss_relay() {
         *) METHOD="2022-blake3-aes-128-gcm" ;;  # 默认
     esac
 
-    # 根据加密方式生成合适的密钥/密码
     if [[ "$METHOD" == 2022-blake3-* ]]; then
-        # 2022系列需要32字节的base64编码密钥
         echo -e "${YELLOW}注意：$METHOD 使用32字节密钥${PLAIN}"
-        PASS=$(openssl rand -base64 32 | tr -d '\n\r=+/' | cut -c1-43)  # 32字节base64
-        echo "生成的密钥: $PASS"
-        echo "密钥长度: ${#PASS}"
+        PASS=$(openssl rand -base64 32 | tr -d '\n\r=+/' | cut -c1-43) 
     else
-        # 传统加密方式使用普通密码
         PASS=$(openssl rand -base64 16 | tr -d '\n\r=+/')
-        echo "生成的密码: $PASS"
     fi
 
     cat > "$CONFIG_FILE" <<EOF
@@ -501,13 +466,11 @@ mode_ss_relay() {
 EOF
 
     echo -e "${GREEN}SS → VLESS Relay 配置已生成${PLAIN}"
-
-    # 生成 Shadowsocks 链接
+    
     SS_BASE64=$(echo -n "$METHOD:$PASS" | base64 -w0)
     SS_LINK="ss://${SS_BASE64}@$(ip):$PORT#$REMARK"
     echo "$SS_LINK"
 
-    # 测试配置文件
     echo -e "${YELLOW}正在检查配置文件语法...${PLAIN}"
     TEST_OUTPUT=$($XRAY_BIN -test -config "$CONFIG_FILE" 2>&1)
     if [ $? -eq 0 ]; then
@@ -548,7 +511,8 @@ mode_vless_to_ss() {
     read -rp "节点备注:" REMARK
     read -rp "本地监听端口(回车随机10000-65535): " PORT
     PORT=${PORT:-$(port)}
-
+    read -rp "请输入 Reality SNI(默认 addons.mozilla.org): " SNI
+    SNI=${SNI:-addons.mozilla.org}
     UUID=$(uuid)
     KEYS=$($XRAY_BIN x25519)
     PRI=$(echo "$KEYS" | grep -i '^PrivateKey' | awk -F ': ' '{print $2}')
@@ -571,8 +535,8 @@ mode_vless_to_ss() {
       "network": "tcp",
       "security": "reality",
       "realitySettings": {
-        "dest": "addons.mozilla.org:443",
-        "serverNames": ["addons.mozilla.org"],
+        "dest": "["$SNI"]:443",
+        "serverNames": ["$SNI"],
         "privateKey": "$PRI",
         "shortIds": ["$SID"]
       }
