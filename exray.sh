@@ -11,6 +11,7 @@ PLAIN='\033[0m'
 
 XRAY_BIN="/usr/local/bin/xray"
 CONFIG_FILE="/usr/local/etc/xray/config.json"
+# shellcheck disable=SC2034
 SCRIPT_PATH="/usr/local/bin/exray"
 
 # ---------------- Check ----------------
@@ -241,7 +242,7 @@ mode_vless() {
     UUID=$(uuid)
     KEYS=$($XRAY_BIN x25519)
     PRI=$(echo "$KEYS" | grep -i '^PrivateKey' | awk -F ': ' '{print $2}')
-    PBK=$(echo "$KEYS" | grep -i '^PublicKey'   | awk -F ': ' '{print $2}')
+    PBK=$(echo "$KEYS" | grep -i '^Password'   | awk -F ': ' '{print $2}')
     SID=$(openssl rand -hex 4)
 
     cat > "$CONFIG_FILE" <<EOF
@@ -319,7 +320,7 @@ mode_trojan() {
     PASSWORD=$(uuid)
     KEYS=$($XRAY_BIN x25519)
     PRI=$(echo "$KEYS" | grep -i '^PrivateKey' | awk -F ': ' '{print $2}')
-    PBK=$(echo "$KEYS" | grep -i '^PublicKey'   | awk -F ': ' '{print $2}')
+    PBK=$(echo "$KEYS" | grep -i '^Password'   | awk -F ': ' '{print $2}')
     read -rp "请输入 Reality SNI(默认 addons.mozilla.org): " SNI
     SNI=${SNI:-addons.mozilla.org}
     SID=$(openssl rand -hex 4)
@@ -460,7 +461,7 @@ mode_vless_to_ss() {
     UUID=$(uuid)
     KEYS=$($XRAY_BIN x25519)
     PRI=$(echo "$KEYS" | grep -i '^PrivateKey' | awk -F ': ' '{print $2}')
-    PBK=$(echo "$KEYS" | grep -i '^PublicKey'   | awk -F ': ' '{print $2}')
+    PBK=$(echo "$KEYS" | grep -i '^Password'   | awk -F ': ' '{print $2}')
     SID=$(openssl rand -hex 4)
 
     cat > "$CONFIG_FILE" <<EOF
