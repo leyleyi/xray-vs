@@ -8,11 +8,11 @@ bash -c "$(curl -fsSL https://github.com/leyleyi/exray/raw/refs/heads/main/exray
 
 ## 安装完成后使用方式
 
-下载sh文件 重命名为xray-vs.sh 
+下载sh文件 重命名为exray.sh 
 
 ```
-chmod +x xray-vs.sh
-mv xray-vs.sh /usr/local/bin/exray
+chmod +x exray.sh
+mv exray.sh /usr/local/bin/exray
 ```
 
 SSH直接输入
