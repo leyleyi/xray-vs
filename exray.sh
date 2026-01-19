@@ -73,6 +73,14 @@ install_xray() {
     fi
 
     echo -e "${BLUE}正在下载最新 Xray...${PLAIN}"
+    read -rp "请输入Github代理(结尾带 /可留空)： " GITHUB_PROXY
+
+    GITHUB_PROXY=$(echo "$GITHUB_PROXY" | xargs)
+    if [ -n "$GITHUB_PROXY" ] && [[ ! "$GITHUB_PROXY" =~ /$ ]]; then
+        GITHUB_PROXY="${GITHUB_PROXY}/"
+    fi
+    # ───────────────────────────────────────────────────────────
+
     VER=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r .tag_name)
     [ -z "$VER" ] || [ "$VER" = "null" ] && { echo -e "${RED}获取版本失败${PLAIN}"; exit 1; }
 
@@ -84,8 +92,19 @@ install_xray() {
     esac
 
     TMP=$(mktemp -d)
-    wget -qO "$TMP/xray.zip" "https://github.com/XTLS/Xray-core/releases/download/$VER/Xray-linux-$A.zip" || {
-        echo -e "${RED}下载失败${PLAIN}"; rm -rf "$TMP"; exit 1;
+
+    DOWNLOAD_URL="https://github.com/XTLS/Xray-core/releases/download/$VER/Xray-linux-$A.zip"
+    FULL_URL="${GITHUB_PROXY}${DOWNLOAD_URL}"
+
+    echo -e "${BLUE}下载地址：${FULL_URL}${PLAIN}"
+
+    wget -qO "$TMP/xray.zip" "$FULL_URL" || {
+        echo -e "${RED}下载失败${PLAIN}"
+        if [ -n "$GITHUB_PROXY" ]; then
+            echo -e "${YELLOW}提示：代理可能失效，可尝试回车不使用代理重试${PLAIN}"
+        fi
+        rm -rf "$TMP"
+        exit 1
     }
 
     unzip -q "$TMP/xray.zip" -d "$TMP" || { echo -e "${RED}解压失败${PLAIN}"; rm -rf "$TMP"; exit 1; }
