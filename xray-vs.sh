@@ -309,7 +309,7 @@ service_restart() {
 
 # ---------------- MODE 7 ----------------
 stop_xray() {
-    systemctl strop xray && echo -e "${GREEN}Xray 已停止${PLAIN}"
+    systemctl stop xray && echo -e "${GREEN}Xray 已停止${PLAIN}"
 
 
 }
