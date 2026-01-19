@@ -194,43 +194,53 @@ uninstall_xray() {
 }
 
 # ---------------- 配置生成函数 ----------------
+# ---------------- 配置生成函数 ----------------
 parse_vless() {
-    l=${1#*://}; l=${l%\#*}
-    V_UUID=${l%%@*}
-    r=${l#*@}
-    ap=${r%%\?*}
-    V_ADDR=${ap%%:*}
-    V_PORT=${ap##*:}
-    IFS='&'
-    for i in ${r#*\?}; do
-        k=${i%%=*}; v=${i#*=}
-        case "$k" in
-            sni) V_SNI=$v ;;
-            pbk) V_PBK=$v ;;
-            sid) V_SID=$v ;;
-            flow) V_FLOW=$v ;;
-            fp) V_FP=$v ;;
-        esac
-    done
-    unset IFS
+    local link="$1"
+    local cleaned_link="${link#*://}"
+    cleaned_link="${cleaned_link%\#*}"
+
+    # 提取 UUID
+    V_UUID="${cleaned_link%%@*}"
+
+    # 提取地址部分
+    local rest="${cleaned_link#*@}"
+    local address_part="${rest%%\?*}"
+    V_ADDR="${address_part%%:*}"
+    V_PORT="${address_part##*:}"
+
+    # 清除之前的变量值
+    V_SNI=""
+    V_PBK=""
+    V_SID=""
+    V_FLOW=""
+    V_FP=""
+
+    # 使用 sed 提取参数
+    local params="${rest#*\?}"
+    V_SNI=$(echo "$params" | sed -n 's/.*[&?]sni=\([^&]*\).*/\1/p')
+    V_PBK=$(echo "$params" | sed -n 's/.*[&?]pbk=\([^&]*\).*/\1/p')
+    V_SID=$(echo "$params" | sed -n 's/.*[&?]sid=\([^&]*\).*/\1/p')
+    V_FLOW=$(echo "$params" | sed -n 's/.*[&?]flow=\([^&]*\).*/\1/p')
+    V_FP=$(echo "$params" | sed -n 's/.*[&?]fp=\([^&]*\).*/\1/p')
     [ -z "$V_SNI" ] && V_SNI="addons.mozilla.org"
     [ -z "$V_FP" ] && V_FP="chrome"
-    [ -z "$V_SID" ] && V_SID=$(openssl rand -hex 4)
+    [ -z "$V_SID" ] && V_SID="00000000"
 }
 
-# 选择 Shadowsocks 加密方式
 choose_ss_method() {
-    echo -e "${YELLOW}选择 Shadowsocks 加密方式（回车默认使用首选）：${PLAIN}"
-    echo " 1) 2022-blake3-aes-128-gcm（首选，推荐）"
-    echo " 2) chacha20-ietf-poly1305"
-    echo " 3) aes-256-gcm"
-    echo " 4) aes-128-gcm"
+    echo -e "${YELLOW}选择 Shadowsocks 加密方式：${PLAIN}"
+    echo "1) 2022-blake3-aes-128-gcm（默认）"
+    echo "2) chacha20-ietf-poly1305"
+    echo "3) aes-256-gcm"
+    echo "4) aes-128-gcm"
     read -rp "请输入选项 [1-4，回车=1]: " choice
+
     case "$choice" in
         2) echo "chacha20-ietf-poly1305" ;;
         3) echo "aes-256-gcm" ;;
         4) echo "aes-128-gcm" ;;
-        *) echo "2022-blake3-aes-128-gcm" ;;  # 默认
+        *) echo "2022-blake3-aes-128-gcm" ;;
     esac
 }
 
@@ -364,21 +374,36 @@ EOF
         echo -e "${RED}配置文件语法检查失败，请检查配置${PLAIN}"
     fi
 }
-
 # ---------------- Mode 4: SS → VLESS Reality Relay ----------------
 mode_ss_relay() {
     read -rp "输入VLESS链接: " LINK
     parse_vless "$LINK"
+
     # 检查必要参数
     if [ -z "$V_UUID" ] || [ -z "$V_ADDR" ] || [ -z "$V_PORT" ]; then
         echo -e "${RED}解析VLESS链接失败，请检查链接格式${PLAIN}"
         return 1
     fi
+
     read -rp "节点备注: " REMARK
     read -rp "请输入本地端口(回车随机10000-65535): " PORT
     PORT=${PORT:-$(port)}
-    METHOD=$(choose_ss_method)
-    PASS=$(openssl rand -base64 16 | tr -d '\n\r')
+
+    echo -e "${YELLOW}选择 Shadowsocks 加密方式：${PLAIN}"
+    echo "1) 2022-blake3-aes-128-gcm（默认）"
+    echo "2) chacha20-ietf-poly1305"
+    echo "3) aes-256-gcm"
+    echo "4) aes-128-gcm"
+    read -rp "请输入选项 [1-4，回车=1]: " choice
+
+    case "$choice" in
+        2) METHOD="chacha20-ietf-poly1305" ;;
+        3) METHOD="aes-256-gcm" ;;
+        4) METHOD="aes-128-gcm" ;;
+        *) METHOD="2022-blake3-aes-128-gcm" ;;  # 默认
+    esac
+
+    PASS=$(openssl rand -base64 16 | tr -d '\n\r=+/')
 
     cat > "$CONFIG_FILE" <<EOF
 {
@@ -419,12 +444,24 @@ mode_ss_relay() {
 EOF
 
     echo -e "${GREEN}SS → VLESS Relay 配置已生成${PLAIN}"
-    echo "ss://$(echo -n "$METHOD:$PASS" | base64 -w0)@$(ip):$PORT#$REMARK"
+    SS_LINK="ss://$(echo -n "$METHOD:$PASS" | base64 -w0)@$(ip):$PORT#$REMARK"
+    echo "$SS_LINK"
 
     if $XRAY_BIN -test -config "$CONFIG_FILE" >/dev/null 2>&1; then
         echo -e "${GREEN}配置文件语法检查通过${PLAIN}"
     else
         echo -e "${RED}配置文件语法检查失败，请检查配置${PLAIN}"
+        echo -e "${YELLOW}调试信息:${PLAIN}"
+        echo "端口: $PORT"
+        echo "方法: $METHOD"
+        echo "密码: $PASS"
+        echo "目标地址: $V_ADDR:$V_PORT"
+        echo "UUID: $V_UUID"
+        echo "SNI: $V_SNI"
+        echo "PBK: $V_PBK"
+        echo "SID: $V_SID"
+        echo "FLOW: $V_FLOW"
+        echo "FP: $V_FP"
     fi
 }
 
