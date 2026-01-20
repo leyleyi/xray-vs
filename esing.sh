@@ -196,37 +196,43 @@ mode_vless_reality() {
     read -rp "端口(回车随机): " PORT
     PORT=${PORT:-$(port)}
     UUID=$(uuid)
-    KEYS=$($SING_BIN generate reality-keypair)
-    PRI=$(echo "$KEYS" | grep PrivateKey | awk '{print $2}' | tr -d '"')
-    PBK=$(echo "$KEYS" | grep PublicKey | awk '{print $2}' | tr -d '"')
-    SHORTID=$(openssl rand -hex 4)
 
-    cat > "$CONFIG_FILE" <<EOF
+    KEYS=$($SING_BIN generate reality-keypair)
+    PRI=$(echo "$KEYS" | awk '/PrivateKey/ {print $2}')
+    PBK=$(echo "$KEYS" | awk '/PublicKey/ {print $2}')
+    SHORTID=$(openssl rand -hex 4)
+    SNI="addons.mozilla.org"
+
+cat > "$CONFIG_FILE" <<EOF
 {
-  "log": {"level": "info"},
-  "inbounds": [{
-    "type": "vless",
-    "tag": "in",
-    "listen": "::",
-    "listen_port": $PORT,
-    "users": [{"uuid": "$UUID", "flow": "xtls-rprx-vision"}],
-    "tls": {
-      "enabled": true,
-      "reality": {
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-in",
+      "listen": "::",
+      "listen_port": $PORT,
+      "users": [
+        { "uuid": "$UUID", "flow": "xtls-rprx-vision" }
+      ],
+      "tls": {
         "enabled": true,
-        "handshake": {"server": "addons.mozilla.org", "server_port": 443},
-        "private_key": "$PRI",
-        "short_id": ["$SHORTID"]
+        "server_name": "$SNI",
+        "reality": {
+          "enabled": true,
+          "private_key": "$PRI",
+          "short_id": ["$SHORTID"]
+        }
       }
     }
-  }],
-  "outbounds": [{"type": "direct", "tag": "direct"}]
+  ],
+  "outbounds": [{ "type": "direct" }]
 }
 EOF
 
-    echo -e "${GREEN}VLESS Reality 配置完成${PLAIN}"
-    echo "vless://$UUID@$(ip):$PORT?security=reality&pbk=$PBK&fp=chrome&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid=$SHORTID#$REMARK"
+echo "vless://$UUID@$(ip):$PORT?encryption=none&security=reality&flow=xtls-rprx-vision&pbk=$PBK&sid=$SHORTID&sni=$SNI#$REMARK"
 }
+
 
 mode_shadowsocks() {
     read -rp "节点备注: " REMARK
@@ -284,25 +290,26 @@ mode_trojan() {
     read -rp "SNI (默认 www.microsoft.com): " SNI
     SNI=${SNI:-www.microsoft.com}
 
-    cat > "$CONFIG_FILE" <<EOF
+cat > "$CONFIG_FILE" <<EOF
 {
-  "log": {"level": "info"},
-  "inbounds": [{
-    "type": "trojan",
-    "tag": "in",
-    "listen": "::",
-    "listen_port": $PORT,
-    "users": [{"password": "$PASS"}],
-    "tls": {
-      "enabled": true,
-      "server_name": "$SNI"
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "type": "trojan",
+      "listen": "::",
+      "listen_port": $PORT,
+      "users": [{ "password": "$PASS" }],
+      "tls": {
+        "enabled": true,
+        "server_name": "$SNI"
+      }
     }
-  }],
-  "outbounds": [{"type": "direct", "tag": "direct"}]
+  ],
+  "outbounds": [{ "type": "direct" }]
 }
 EOF
 
-    echo "trojan://$PASS@$(ip):$PORT?security=tls&sni=$SNI#$REMARK"
+echo "trojan://$PASS@$(ip):$PORT?security=tls&sni=$SNI#$REMARK"
 }
 
 mode_tuic() {
@@ -310,103 +317,90 @@ mode_tuic() {
     read -rp "端口(回车随机): " PORT
     PORT=${PORT:-$(port)}
     UUID=$(uuid)
-    PASS=$(openssl rand -base64 12 | tr -d '\n\r=+/')
+    PASS=$(openssl rand -hex 8)
+    SNI="addons.mozilla.org"
 
-    cat > "$CONFIG_FILE" <<EOF
+cat > "$CONFIG_FILE" <<EOF
 {
-  "log": {"level": "info"},
-  "inbounds": [{
-    "type": "tuic",
-    "tag": "in",
-    "listen": "::",
-    "listen_port": $PORT,
-    "users": [{"uuid": "$UUID", "password": "$PASS"}],
-    "congestion_control": "bbr",
-    "tls": {
-      "enabled": true,
-      "alpn": ["h3"]
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "type": "tuic",
+      "listen": "::",
+      "listen_port": $PORT,
+      "users": [
+        { "uuid": "$UUID", "password": "$PASS" }
+      ],
+      "congestion_control": "bbr",
+      "tls": {
+        "enabled": true,
+        "server_name": "$SNI",
+        "alpn": ["h3"]
+      }
     }
-  }],
-  "outbounds": [{"type": "direct", "tag": "direct"}]
+  ],
+  "outbounds": [{ "type": "direct" }]
 }
 EOF
 
-    echo "tuic://$UUID:$PASS@$(ip):$PORT?congestion_control=bbr&sni=addons.mozilla.org#$REMARK"
+echo "tuic://$UUID:$PASS@$(ip):$PORT?sni=$SNI&congestion_control=bbr#$REMARK"
 }
 
 mode_hysteria2() {
     read -rp "节点备注: " REMARK
     read -rp "端口(回车随机): " PORT
     PORT=${PORT:-$(port)}
-    PASS=$(openssl rand -base64 20 | tr -d '\n\r=+/')
+    PASS=$(openssl rand -hex 8)
+    SNI="addons.mozilla.org"
 
-    read -rp "是否启用 salamander 混淆？(y/n，回车=n): " obfs_choice
-    if [[ "$obfs_choice" == "y" || "$obfs_choice" == "Y" ]]; then
-        OBFS_PASS=$(openssl rand -base64 16 | tr -d '\n\r=+/')
-        cat > "$CONFIG_FILE" <<EOF
+cat > "$CONFIG_FILE" <<EOF
 {
-  "log": {"level": "info"},
-  "inbounds": [{
-    "type": "hysteria2",
-    "tag": "in",
-    "listen": "::",
-    "listen_port": $PORT,
-    "users": [{"password": "$PASS"}],
-    "obfs": {"type": "salamander", "password": "$OBFS_PASS"},
-    "tls": {"enabled": true}
-  }],
-  "outbounds": [{"type": "direct", "tag": "direct"}]
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "type": "hysteria2",
+      "listen": "::",
+      "listen_port": $PORT,
+      "passwords": ["$PASS"],
+      "tls": {
+        "enabled": true,
+        "server_name": "$SNI"
+      }
+    }
+  ],
+  "outbounds": [{ "type": "direct" }]
 }
 EOF
-        echo "混淆密码: $OBFS_PASS"
-    else
-        cat > "$CONFIG_FILE" <<EOF
-{
-  "log": {"level": "info"},
-  "inbounds": [{
-    "type": "hysteria2",
-    "tag": "in",
-    "listen": "::",
-    "listen_port": $PORT,
-    "users": [{"password": "$PASS"}],
-    "tls": {"enabled": true}
-  }],
-  "outbounds": [{"type": "direct", "tag": "direct"}]
-}
-EOF
-    fi
 
-    echo "hysteria2://$PASS@$(ip):$PORT/?sni=addons.mozilla.org#$REMARK"
+echo "hysteria2://$PASS@$(ip):$PORT?sni=$SNI#$REMARK"
 }
+
 
 mode_anytls() {
     read -rp "节点备注: " REMARK
     read -rp "端口(回车随机): " PORT
     PORT=${PORT:-$(port)}
-    PASSWORD=$(openssl rand -base64 32 | tr -d '\n\r=+/')
-    NAME="anytls-$(openssl rand -hex 6)"
+    USER="user-$(openssl rand -hex 4)"
+    PASS=$(openssl rand -hex 16)
 
-    cat > "$CONFIG_FILE" <<EOF
+cat > "$CONFIG_FILE" <<EOF
 {
-  "log": {"level": "info"},
-  "inbounds": [{
-    "type": "anytls",
-    "tag": "anytls-in",
-    "listen": "::",
-    "listen_port": $PORT,
-    "users": [
-      {
-        "name": "$NAME",
-        "password": "$PASSWORD"
-      }
-    ],
-    "padding_scheme": []   # 默认即可
-  }],
-  "outbounds": [{"type": "direct", "tag": "direct"}]
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "type": "anytls",
+      "listen": "::",
+      "listen_port": $PORT,
+      "users": [
+        { "name": "$USER", "password": "$PASS" }
+      ]
+    }
+  ],
+  "outbounds": [{ "type": "direct" }]
 }
 EOF
 
-    echo "anytls://${PASSWORD}@$(ip):${PORT}?name=${NAME}#${REMARK}"
+echo "anytls://$PASS@$(ip):$PORT?name=$USER#$REMARK"
 }
 
 mode_socks() {
@@ -432,51 +426,59 @@ EOF
 }
 
 mode_ss_to_vless() {
-    read -rp "输入远程 VLESS reality 链接: " LINK
-    # 简易解析（实际生产建议完善）
-    UUID=$(echo "$LINK" | grep -oP '(?<=//)[^@]+')
-    HOST_PORT=$(echo "$LINK" | grep -oP '(?<=@)[^?]+')
-    ADDR=${HOST_PORT%%:*}
-    PORT=${HOST_PORT##*:}
-    PBK=$(echo "$LINK" | grep -oP '(?<=pbk=)[^&]+')
-    SID=$(echo "$LINK" | grep -oP '(?<=sid=)[^#&]+')
-    SNI=$(echo "$LINK" | grep -oP '(?<=sni=)[^&]+')
+    read -rp "输入远程 VLESS Reality 链接: " LINK
 
-    read -rp "本地监听端口(回车随机): " LOCAL_PORT
+    UUID=$(echo "$LINK" | sed -n 's|vless://\([^@]*\)@.*|\1|p')
+    HOST_PORT=$(echo "$LINK" | sed -n 's|.*@\([^?]*\).*|\1|p')
+    ADDR=${HOST_PORT%%:*}
+    RPORT=${HOST_PORT##*:}
+    PBK=$(echo "$LINK" | sed -n 's|.*pbk=\([^&]*\).*|\1|p')
+    SID=$(echo "$LINK" | sed -n 's|.*sid=\([^&]*\).*|\1|p')
+    SNI=$(echo "$LINK" | sed -n 's|.*sni=\([^&]*\).*|\1|p')
+
+    read -rp "本地 Shadowsocks 监听端口(回车随机): " LOCAL_PORT
     LOCAL_PORT=${LOCAL_PORT:-$(port)}
     read -rp "节点备注: " REMARK
 
     METHOD="2022-blake3-aes-128-gcm"
     PASS=$(random_base64_32)
 
-    cat > "$CONFIG_FILE" <<EOF
+cat > "$CONFIG_FILE" <<EOF
 {
-  "log": {"level": "info"},
-  "inbounds": [{
-    "type": "shadowsocks",
-    "tag": "ss-in",
-    "listen": "::",
-    "listen_port": $LOCAL_PORT,
-    "method": "$METHOD",
-    "password": "$PASS"
-  }],
-  "outbounds": [{
-    "type": "vless",
-    "tag": "remote",
-    "server": "$ADDR",
-    "server_port": $PORT,
-    "uuid": "$UUID",
-    "flow": "xtls-rprx-vision",
-    "tls": {
-      "enabled": true,
-      "reality": {
-        "enabled": true,
-        "public_key": "$PBK",
-        "short_id": ["$SID"]
-      },
-      "server_name": "$SNI"
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "type": "shadowsocks",
+      "tag": "ss-in",
+      "listen": "::",
+      "listen_port": $LOCAL_PORT,
+      "method": "$METHOD",
+      "password": "$PASS"
     }
-  }]
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-out",
+      "server": "$ADDR",
+      "server_port": $RPORT,
+      "users": [
+        {
+          "uuid": "$UUID",
+          "flow": "xtls-rprx-vision"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "$SNI",
+        "reality": {
+          "enabled": true,
+          "public_key": "$PBK",
+          "short_id": ["$SID"]
+        }
+      }
+    }
+  ]
 }
 EOF
 
@@ -484,61 +486,74 @@ EOF
     echo "ss://$SS_B64@$(ip):$LOCAL_PORT#$REMARK"
 }
 
+
 mode_vless_to_ss() {
     read -rp "输入远程 Shadowsocks 链接: " SS_LINK
-    # 简易解析
-    SS_B64=$(echo "${SS_LINK#ss://}" | cut -d@ -f1)
-    SS_DECODE=$(echo "$SS_B64" | base64 -d)
-    METHOD_PASS=${SS_DECODE%@*}
-    METHOD=${METHOD_PASS%%:*}
-    PASS=${METHOD_PASS#*:}
-    HOST_PORT=${SS_LINK#*@}
+
+    SS_CORE=${SS_LINK#ss://}
+    SS_AUTH=${SS_CORE%@*}
+    SS_DECODE=$(echo "$SS_AUTH" | base64 -d)
+    METHOD=${SS_DECODE%%:*}
+    PASS=${SS_DECODE#*:}
+
+    HOST_PORT=${SS_CORE#*@}
     HOST_PORT=${HOST_PORT%%#*}
     ADDR=${HOST_PORT%%:*}
-    PORT=${HOST_PORT##*:}
+    RPORT=${HOST_PORT##*:}
 
-    read -rp "本地端口(回车随机): " LOCAL_PORT
+    read -rp "本地 VLESS Reality 端口(回车随机): " LOCAL_PORT
     LOCAL_PORT=${LOCAL_PORT:-$(port)}
     read -rp "节点备注: " REMARK
 
     UUID=$(uuid)
     KEYS=$($SING_BIN generate reality-keypair)
-    PRI=$(echo "$KEYS" | grep PrivateKey | awk '{print $2}' | tr -d '"')
-    PBK=$(echo "$KEYS" | grep PublicKey | awk '{print $2}' | tr -d '"')
+    PRI=$(echo "$KEYS" | awk '/PrivateKey/ {print $2}')
+    PBK=$(echo "$KEYS" | awk '/PublicKey/ {print $2}')
     SHORTID=$(openssl rand -hex 4)
+    SNI="addons.mozilla.org"
 
-    cat > "$CONFIG_FILE" <<EOF
+cat > "$CONFIG_FILE" <<EOF
 {
-  "log": {"level": "info"},
-  "inbounds": [{
-    "type": "vless",
-    "tag": "vless-in",
-    "listen": "::",
-    "listen_port": $LOCAL_PORT,
-    "users": [{"uuid": "$UUID", "flow": "xtls-rprx-vision"}],
-    "tls": {
-      "enabled": true,
-      "reality": {
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-in",
+      "listen": "::",
+      "listen_port": $LOCAL_PORT,
+      "users": [
+        {
+          "uuid": "$UUID",
+          "flow": "xtls-rprx-vision"
+        }
+      ],
+      "tls": {
         "enabled": true,
-        "handshake": {"server": "addons.mozilla.org", "server_port": 443},
-        "private_key": "$PRI",
-        "short_id": ["$SHORTID"]
+        "server_name": "$SNI",
+        "reality": {
+          "enabled": true,
+          "private_key": "$PRI",
+          "short_id": ["$SHORTID"]
+        }
       }
     }
-  }],
-  "outbounds": [{
-    "type": "shadowsocks",
-    "tag": "remote-ss",
-    "server": "$ADDR",
-    "server_port": $PORT,
-    "method": "$METHOD",
-    "password": "$PASS"
-  }]
+  ],
+  "outbounds": [
+    {
+      "type": "shadowsocks",
+      "tag": "ss-out",
+      "server": "$ADDR",
+      "server_port": $RPORT,
+      "method": "$METHOD",
+      "password": "$PASS"
+    }
+  ]
 }
 EOF
 
-    echo "vless://$UUID@$(ip):$LOCAL_PORT?security=reality&pbk=$PBK&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid=$SHORTID#$REMARK"
+echo "vless://$UUID@$(ip):$LOCAL_PORT?encryption=none&security=reality&flow=xtls-rprx-vision&pbk=$PBK&sid=$SHORTID&sni=$SNI#$REMARK"
 }
+
 
 enable_bbr() {
     cat > /etc/sysctl.d/99-bbr.conf <<'EOF'
