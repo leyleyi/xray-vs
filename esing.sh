@@ -335,12 +335,11 @@ mode_anytls() {
     read -rp "端口(回车随机): " PORT
     PORT=${PORT:-$(port)}
     PASSWORD=$(openssl rand -base64 32 | tr -d '\n\r=+/')
-    NAME="$(openssl rand -hex 4)"
+    NAME="anytls-$(openssl rand -hex 6)"
+
     cat > "$CONFIG_FILE" <<EOF
 {
-  "log": {
-    "level": "info"
-  },
+  "log": {"level": "info"},
   "inbounds": [{
     "type": "anytls",
     "tag": "anytls-in",
@@ -352,27 +351,13 @@ mode_anytls() {
         "password": "$PASSWORD"
       }
     ],
-    "padding_scheme": []  // 使用默认 padding scheme（官方推荐留空或 []）
-    // tls 可选添加 reality / uTLS 等伪装（当前保持简单）
+    "padding_scheme": []   # 默认即可
   }],
-  "outbounds": [{
-    "type": "direct",
-    "tag": "direct"
-  }]
+  "outbounds": [{"type": "direct", "tag": "direct"}]
 }
 EOF
 
-    echo -e "${GREEN}AnyTLS 配置已生成${PLAIN}"
-    echo "anytls://${PASSWORD}@$(ip):${PORT}?name=${NAME}#${REMARK} (实验性协议)"
-    echo -e "${YELLOW}正在检查配置文件语法...${PLAIN}"
-    TEST_OUTPUT=$($SING_BIN check -c "$CONFIG_FILE" 2>&1)
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}配置文件语法检查通过${PLAIN}"
-    else
-        echo -e "${RED}配置文件语法检查失败，请检查配置${PLAIN}"
-        echo -e "${YELLOW}错误信息：${PLAIN}"
-        echo "$TEST_OUTPUT"
-    fi
+    echo "anytls://${PASSWORD}@$(ip):${PORT}?name=${NAME}#${REMARK}"
 }
 
 mode_socks() {
