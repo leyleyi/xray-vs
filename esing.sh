@@ -92,7 +92,8 @@ install_singbox() {
     esac
 
     TMP=$(mktemp -d)
-    DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/$VER/sing-box-$VER-linux-$A.tar.gz"
+    VER_NO_V="${VER#v}"
+    DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/$VER/sing-box-${VER_NO_V}-linux-$A.tar.gz"
     FULL_URL="${GITHUB_PROXY}${DOWNLOAD_URL}"
 
     echo -e "${BLUE}下载地址：${FULL_URL}${PLAIN}"
