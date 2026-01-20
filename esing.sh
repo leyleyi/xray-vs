@@ -9,7 +9,7 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 PLAIN='\033[0m'
 
-SING_BIN="/usr/local/bin/sing-box"
+SING_BIN="$(command -v sing-box || echo "/usr/local/bin/sing-box")"
 CONFIG_FILE="/usr/local/etc/sing-box/config.json"
 SCRIPT_PATH="/usr/local/bin/esing"
 
@@ -70,9 +70,9 @@ deps() {
 
 # ---------------- 安装 sing-box ----------------
 install_singbox() {
-    mkdir -p /usr/local/etc/sing-box
+    mkdir -p /usr/local/etc/sing-box /usr/local/bin
     if [ -x "$SING_BIN" ]; then
-        echo -e "${YELLOW}sing-box 已安装${PLAIN}"
+        echo -e "${YELLOW}sing-box 已安装 ($(sing-box version 2>/dev/null || echo '未知版本'))${PLAIN}"
         return 0
     fi
 
@@ -84,24 +84,23 @@ install_singbox() {
     VER=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r .tag_name)
     [ -z "$VER" ] || [ "$VER" = "null" ] && { echo -e "${RED}获取版本失败${PLAIN}"; exit 1; }
 
+    VER_NO_V="${VER#v}"
     ARCH=$(uname -m)
     case "$ARCH" in
         x86_64)   A="amd64" ;;
         aarch64)  A="arm64" ;;
         *) echo -e "${RED}不支持的架构: $ARCH${PLAIN}"; exit 1 ;;
     esac
-
     TMP=$(mktemp -d)
-    VER_NO_V="${VER#v}"
-    DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/$VER/sing-box-${VER_NO_V}-linux-$A.tar.gz"
+    DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/$VER/sing-box-${VER_NO_V}-linux-${A}.tar.gz"
     FULL_URL="${GITHUB_PROXY}${DOWNLOAD_URL}"
-
     echo -e "${BLUE}下载地址：${FULL_URL}${PLAIN}"
-
     if ! wget -qO "$TMP/sing-box.tar.gz" "$FULL_URL"; then
         echo -e "${YELLOW}代理下载失败，尝试直连...${PLAIN}"
         if ! wget -qO "$TMP/sing-box.tar.gz" "$DOWNLOAD_URL"; then
-            echo -e "${RED}下载失败${PLAIN}"
+            echo -e "${RED}下载失败。请尝试：${PLAIN}"
+            echo -e "2. 手动下载：https://github.com/SagerNet/sing-box/releases/download/$VER/sing-box-${VER_NO_V}-linux-${A}.tar.gz"
+            echo -e "   上传后解压：tar -xzf 文件名.tar.gz && install -m755 sing-box /usr/local/bin/sing-box"
             rm -rf "$TMP"
             exit 1
         fi
@@ -111,7 +110,7 @@ install_singbox() {
     install -m755 "$TMP/sing-box" "$SING_BIN"
     rm -rf "$TMP"
 
-    echo -e "${GREEN}sing-box 安装完成 (版本 $VER)${PLAIN}"
+    echo -e "${GREEN}sing-box 安装完成 (版本 ${VER})${PLAIN}"
 }
 
 # ---------------- 服务管理 ----------------
@@ -163,6 +162,7 @@ service_restart() {
         fi
     else
         echo -e "${RED}配置文件检查失败，无法重启${PLAIN}"
+        $SING_BIN check -c "$CONFIG_FILE"
     fi
 }
 
