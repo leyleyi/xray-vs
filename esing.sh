@@ -337,7 +337,7 @@ mode_anytls() {
     UUID=$(uuid)
 
     generate_common_inbound "anytls" "$REMARK" "$PORT" "
-    \"users\": [{\"uuid\": \"$UUID\"}]"
+    \"users\": [{\"password: \"$UUID\"}]"
 
     echo "anytls://$UUID@$(ip):$PORT#$REMARK (实验性协议)"
 }
