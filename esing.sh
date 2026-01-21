@@ -12,6 +12,7 @@ PLAIN='\033[0m'
 SING_BIN="$(command -v sing-box || echo "/usr/local/bin/sing-box")"
 CONFIG_FILE="/usr/local/etc/sing-box/config.json"
 SCRIPT_PATH="/usr/local/bin/esing"
+CERT_DIR="/usr/local/etc/sing-box/certs"
 
 # ---------------- Check ----------------
 check_root() {
@@ -46,6 +47,28 @@ random_base64_32() {
     openssl rand -base64 32 | tr -d '\n\r=+/' | cut -c1-43
 }
 
+# ---------------- 生成自签名证书 ----------------
+generate_self_signed_cert() {
+    local domain=$1
+    mkdir -p "$CERT_DIR"
+
+    if [ ! -f "$CERT_DIR/cert.pem" ] || [ ! -f "$CERT_DIR/key.pem" ]; then
+        echo -e "${BLUE}正在生成自签名证书...${PLAIN}"
+        openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+            -keyout "$CERT_DIR/key.pem" -out "$CERT_DIR/cert.pem" \
+            -subj "/CN=$domain" \
+            -addext "subjectAltName=DNS:$domain,DNS:*.$domain" 2>/dev/null
+
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}证书生成成功${PLAIN}"
+        else
+            echo -e "${RED}证书生成失败${PLAIN}"
+            return 1
+        fi
+    fi
+    return 0
+}
+
 # ---------------- 依赖安装 ----------------
 deps() {
     echo -e "${BLUE}正在安装系统依赖...${PLAIN}"
@@ -61,7 +84,7 @@ deps() {
             yum install -y curl wget jq unzip openssl ca-certificates
             ;;
         *)
-            echo -e "${YELLOW}未识别的系统: $OS，尝试继续...${PLAIN}"
+            echo -e "${YELLOW}未识别的系统: $OS,尝试继续...${PLAIN}"
             ;;
     esac
 
@@ -70,14 +93,14 @@ deps() {
 
 # ---------------- 安装 sing-box ----------------
 install_singbox() {
-    mkdir -p /usr/local/etc/sing-box /usr/local/bin
+    mkdir -p /usr/local/etc/sing-box /usr/local/bin "$CERT_DIR"
     if [ -x "$SING_BIN" ]; then
         echo -e "${YELLOW}sing-box 已安装 ($(sing-box version 2>/dev/null || echo '未知版本'))${PLAIN}"
         return 0
     fi
 
     echo -e "${BLUE}正在下载最新 sing-box...${PLAIN}"
-    read -rp "请输入Github代理(结尾带 / 可留空)： " GITHUB_PROXY
+    read -rp "请输入Github代理(结尾带 / 可留空): " GITHUB_PROXY
     GITHUB_PROXY=$(echo "$GITHUB_PROXY" | xargs)
     [[ -n "$GITHUB_PROXY" && ! "$GITHUB_PROXY" =~ /$ ]] && GITHUB_PROXY="${GITHUB_PROXY}/"
 
@@ -94,13 +117,13 @@ install_singbox() {
     TMP=$(mktemp -d)
     DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/$VER/sing-box-${VER_NO_V}-linux-${A}.tar.gz"
     FULL_URL="${GITHUB_PROXY}${DOWNLOAD_URL}"
-    echo -e "${BLUE}下载地址：${FULL_URL}${PLAIN}"
+    echo -e "${BLUE}下载地址:${FULL_URL}${PLAIN}"
     if ! wget -qO "$TMP/sing-box.tar.gz" "$FULL_URL"; then
-        echo -e "${YELLOW}代理下载失败，尝试直连...${PLAIN}"
+        echo -e "${YELLOW}代理下载失败,尝试直连...${PLAIN}"
         if ! wget -qO "$TMP/sing-box.tar.gz" "$DOWNLOAD_URL"; then
-            echo -e "${RED}下载失败。请尝试：${PLAIN}"
-            echo -e "2. 手动下载：https://github.com/SagerNet/sing-box/releases/download/$VER/sing-box-${VER_NO_V}-linux-${A}.tar.gz"
-            echo -e "   上传后解压：tar -xzf 文件名.tar.gz && install -m755 sing-box /usr/local/bin/sing-box"
+            echo -e "${RED}下载失败。请尝试:${PLAIN}"
+            echo -e "2. 手动下载:https://github.com/SagerNet/sing-box/releases/download/$VER/sing-box-${VER_NO_V}-linux-${A}.tar.gz"
+            echo -e "   上传后解压:tar -xzf 文件名.tar.gz && install -m755 sing-box /usr/local/bin/sing-box"
             rm -rf "$TMP"
             exit 1
         fi
@@ -161,7 +184,7 @@ service_restart() {
             systemctl restart sing-box && echo -e "${GREEN}sing-box 已重启${PLAIN}"
         fi
     else
-        echo -e "${RED}配置文件检查失败，无法重启${PLAIN}"
+        echo -e "${RED}配置文件检查失败,无法重启${PLAIN}"
         $SING_BIN check -c "$CONFIG_FILE"
     fi
 }
@@ -220,6 +243,10 @@ cat > "$CONFIG_FILE" <<EOF
         "server_name": "$SNI",
         "reality": {
           "enabled": true,
+          "handshake": {
+            "server": "$SNI",
+            "server_port": 443
+          },
           "private_key": "$PRI",
           "short_id": ["$SHORTID"]
         }
@@ -239,13 +266,13 @@ mode_shadowsocks() {
     read -rp "端口(回车随机): " PORT
     PORT=${PORT:-$(port)}
 
-    echo -e "${YELLOW}选择加密方式：${PLAIN}"
+    echo -e "${YELLOW}选择加密方式:${PLAIN}"
     echo "1) 2022-blake3-aes-128-gcm (默认)"
     echo "2) 2022-blake3-aes-256-gcm"
     echo "3) chacha20-ietf-poly1305"
     echo "4) aes-256-gcm"
     echo "5) aes-128-gcm"
-    read -rp "选项 [1-5，回车=1]: " ch
+    read -rp "选项 [1-5,回车=1]: " ch
 
     case $ch in
         2) METHOD="2022-blake3-aes-256-gcm" ;;
@@ -290,6 +317,8 @@ mode_trojan() {
     read -rp "SNI (默认 www.microsoft.com): " SNI
     SNI=${SNI:-www.microsoft.com}
 
+    generate_self_signed_cert "$SNI"
+
 cat > "$CONFIG_FILE" <<EOF
 {
   "log": { "level": "info" },
@@ -301,7 +330,9 @@ cat > "$CONFIG_FILE" <<EOF
       "users": [{ "password": "$PASS" }],
       "tls": {
         "enabled": true,
-        "server_name": "$SNI"
+        "server_name": "$SNI",
+        "certificate_path": "$CERT_DIR/cert.pem",
+        "key_path": "$CERT_DIR/key.pem"
       }
     }
   ],
@@ -309,7 +340,7 @@ cat > "$CONFIG_FILE" <<EOF
 }
 EOF
 
-echo "trojan://$PASS@$(ip):$PORT?security=tls&sni=$SNI#$REMARK"
+echo "trojan://$PASS@$(ip):$PORT?security=tls&sni=$SNI&allowInsecure=1#$REMARK"
 }
 
 mode_tuic() {
@@ -319,6 +350,8 @@ mode_tuic() {
     UUID=$(uuid)
     PASS=$(openssl rand -hex 8)
     SNI="addons.mozilla.org"
+
+    generate_self_signed_cert "$SNI"
 
 cat > "$CONFIG_FILE" <<EOF
 {
@@ -335,7 +368,9 @@ cat > "$CONFIG_FILE" <<EOF
       "tls": {
         "enabled": true,
         "server_name": "$SNI",
-        "alpn": ["h3"]
+        "alpn": ["h3"],
+        "certificate_path": "$CERT_DIR/cert.pem",
+        "key_path": "$CERT_DIR/key.pem"
       }
     }
   ],
@@ -343,7 +378,7 @@ cat > "$CONFIG_FILE" <<EOF
 }
 EOF
 
-echo "tuic://$UUID:$PASS@$(ip):$PORT?sni=$SNI&congestion_control=bbr#$REMARK"
+echo "tuic://$UUID:$PASS@$(ip):$PORT?sni=$SNI&congestion_control=bbr&alpn=h3&allow_insecure=1#$REMARK"
 }
 
 mode_hysteria2() {
@@ -353,6 +388,8 @@ mode_hysteria2() {
     PASS=$(openssl rand -hex 8)
     SNI="addons.mozilla.org"
 
+    generate_self_signed_cert "$SNI"
+
 cat > "$CONFIG_FILE" <<EOF
 {
   "log": { "level": "info" },
@@ -361,10 +398,15 @@ cat > "$CONFIG_FILE" <<EOF
       "type": "hysteria2",
       "listen": "::",
       "listen_port": $PORT,
-      "passwords": ["$PASS"],
+      "users": [
+        { "password": "$PASS" }
+      ],
       "tls": {
         "enabled": true,
-        "server_name": "$SNI"
+        "server_name": "$SNI",
+        "alpn": ["h3"],
+        "certificate_path": "$CERT_DIR/cert.pem",
+        "key_path": "$CERT_DIR/key.pem"
       }
     }
   ],
@@ -372,7 +414,7 @@ cat > "$CONFIG_FILE" <<EOF
 }
 EOF
 
-echo "hysteria2://$PASS@$(ip):$PORT?sni=$SNI#$REMARK"
+echo "hysteria2://$PASS@$(ip):$PORT?sni=$SNI&insecure=1#$REMARK"
 }
 
 
@@ -382,6 +424,9 @@ mode_anytls() {
     PORT=${PORT:-$(port)}
     USER="user-$(openssl rand -hex 4)"
     PASS=$(openssl rand -hex 16)
+    SNI="addons.mozilla.org"
+
+    generate_self_signed_cert "$SNI"
 
 cat > "$CONFIG_FILE" <<EOF
 {
@@ -393,14 +438,20 @@ cat > "$CONFIG_FILE" <<EOF
       "listen_port": $PORT,
       "users": [
         { "name": "$USER", "password": "$PASS" }
-      ]
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "$SNI",
+        "certificate_path": "$CERT_DIR/cert.pem",
+        "key_path": "$CERT_DIR/key.pem"
+      }
     }
   ],
   "outbounds": [{ "type": "direct" }]
 }
 EOF
 
-echo "anytls://$PASS@$(ip):$PORT?name=$USER#$REMARK"
+echo "anytls://$PASS@$(ip):$PORT?name=$USER&sni=$SNI&allowInsecure=1#$REMARK"
 }
 
 mode_socks() {
@@ -434,7 +485,7 @@ mode_ss_to_vless() {
     RPORT=${HOST_PORT##*:}
     PBK=$(echo "$LINK" | sed -n 's|.*pbk=\([^&]*\).*|\1|p')
     SID=$(echo "$LINK" | sed -n 's|.*sid=\([^&]*\).*|\1|p')
-    SNI=$(echo "$LINK" | sed -n 's|.*sni=\([^&]*\).*|\1|p')
+    SNI=$(echo "$LINK" | sed -n 's|.*sni=\([^&#]*\).*|\1|p')
 
     read -rp "本地 Shadowsocks 监听端口(回车随机): " LOCAL_PORT
     LOCAL_PORT=${LOCAL_PORT:-$(port)}
@@ -462,19 +513,15 @@ cat > "$CONFIG_FILE" <<EOF
       "tag": "vless-out",
       "server": "$ADDR",
       "server_port": $RPORT,
-      "users": [
-        {
-          "uuid": "$UUID",
-          "flow": "xtls-rprx-vision"
-        }
-      ],
+      "uuid": "$UUID",
+      "flow": "xtls-rprx-vision",
       "tls": {
         "enabled": true,
         "server_name": "$SNI",
         "reality": {
           "enabled": true,
           "public_key": "$PBK",
-          "short_id": ["$SID"]
+          "short_id": "$SID"
         }
       }
     }
@@ -532,6 +579,10 @@ cat > "$CONFIG_FILE" <<EOF
         "server_name": "$SNI",
         "reality": {
           "enabled": true,
+          "handshake": {
+            "server": "$SNI",
+            "server_port": 443
+          },
           "private_key": "$PRI",
           "short_id": ["$SHORTID"]
         }
@@ -565,7 +616,7 @@ EOF
 }
 
 show_config_path() {
-    echo -e "${GREEN}配置文件路径：${PLAIN}${YELLOW}$CONFIG_FILE${PLAIN}"
+    echo -e "${GREEN}配置文件路径:${PLAIN}${YELLOW}$CONFIG_FILE${PLAIN}"
 }
 
 # ---------------- 主菜单 ----------------
@@ -580,7 +631,7 @@ main_menu() {
         echo " 3) Trojan (普通TLS)"
         echo " 4) TUIC v5"
         echo " 5) Hysteria2"
-        echo " 6) AnyTLS (实验)"
+        echo " 6) AnyTLS"
         echo " 7) Socks5"
         echo " 8) SS → VLESS-reality 中继"
         echo " 9) VLESS-reality → SS 中继"
