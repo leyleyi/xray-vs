@@ -323,11 +323,9 @@ mode_vmess() {
   "outbounds": [{ "type": "direct" }]
 }
 EOF
-        # 生成带 TLS 的 VMess 链接 (Base64 格式)
         VM_CONFIG="{\"v\":\"2\",\"ps\":\"$REMARK\",\"add\":\"$(ip)\",\"port\":\"$PORT\",\"id\":\"$UUID\",\"aid\":\"$ALTER_ID\",\"net\":\"tcp\",\"type\":\"none\",\"host\":\"\",\"path\":\"\",\"tls\":\"tls\",\"sni\":\"$SNI\",\"alpn\":\"\",\"fp\":\"\",\"scv\":\"true\"}"
         echo "vmess://$(echo -n "$VM_CONFIG" | base64 -w0)"
     else
-        # TLS 未启用时
         cat > "$CONFIG_FILE" <<EOF
 {
   "log": { "level": "info" },
@@ -347,12 +345,10 @@ EOF
   "outbounds": [{ "type": "direct" }]
 }
 EOF
-        # 生成不带 TLS 的 VMess 链接 (Base64 格式)
         VM_CONFIG="{\"v\":\"2\",\"ps\":\"$REMARK\",\"add\":\"$(ip)\",\"port\":\"$PORT\",\"id\":\"$UUID\",\"aid\":\"$ALTER_ID\",\"net\":\"tcp\",\"type\":\"none\",\"host\":\"\",\"path\":\"\",\"tls\":\"\",\"sni\":\"\",\"alpn\":\"\",\"fp\":\"\",\"scv\":\"false\"}"
         echo "vmess://$(echo -n "$VM_CONFIG" | base64 -w0)"
     fi
 }
-
 
 mode_shadowsocks() {
     read -rp "节点备注: " REMARK
@@ -441,7 +437,7 @@ echo "trojan://$PASS@$(ip):$PORT?security=tls&sni=$SNI&allowInsecure=1#$REMARK"
 
 mode_tuic() {
     read -rp "节点备注: " REMARK
-    read -rp "端口(回车随机): " PORT
+    read -rp "端口(回车随机):" PORT
     PORT=${PORT:-$(port)}
     UUID=$(uuid)
     PASS=$(openssl rand -hex 8)
@@ -479,7 +475,7 @@ echo "tuic://$UUID:$PASS@$(ip):$PORT?sni=$SNI&congestion_control=bbr&alpn=h3&all
 
 mode_hysteria2() {
     read -rp "节点备注: " REMARK
-    read -rp "端口(回车随机): " PORT
+    read -rp "端口(回车随机):" PORT
     PORT=${PORT:-$(port)}
     PASS=$(openssl rand -hex 8)
     SNI="addons.mozilla.org"
@@ -516,7 +512,7 @@ echo "hysteria2://$PASS@$(ip):$PORT?sni=$SNI&insecure=1#$REMARK"
 
 mode_anytls() {
     read -rp "节点备注: " REMARK
-    read -rp "端口(回车随机): " PORT
+    read -rp "端口(回车随机):" PORT
     PORT=${PORT:-$(port)}
     USER="user-$(openssl rand -hex 4)"
     PASS=$(openssl rand -hex 16)
@@ -603,7 +599,6 @@ EOF
         echo "socks5://$(ip):$PORT#$REMARK"
     fi
 }
-
 
 enable_bbr() {
     cat > /etc/sysctl.d/99-bbr.conf <<'EOF'
