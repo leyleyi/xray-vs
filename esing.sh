@@ -1,6 +1,7 @@
 #!/bin/bash
 # =========================================================
 # ESING - sing-box 一键管理脚本 - Powered by Leyi
+# Modified: Removed relay modes, Added VMess mode
 # =========================================================
 
 RED='\033[0;31m'
@@ -32,7 +33,7 @@ check_sys() {
 
 # ---------------- Tools ----------------
 ip() {
-    curl -s --max-time 5 https://api.ipify.org || curl -s --max-time 5 ifconfig.me
+    curl -s --max-time 5 https://api.ipify.org   || curl -s --max-time 5 ifconfig.me
 }
 
 port() {
@@ -108,7 +109,7 @@ install_singbox() {
     GITHUB_PROXY=$(echo "$GITHUB_PROXY" | xargs)
     [[ -n "$GITHUB_PROXY" && ! "$GITHUB_PROXY" =~ /$ ]] && GITHUB_PROXY="${GITHUB_PROXY}/"
 
-    VER=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r .tag_name)
+    VER=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest   | jq -r .tag_name)
     [ -z "$VER" ] || [ "$VER" = "null" ] && { echo -e "${RED}获取版本失败${PLAIN}"; exit 1; }
 
     VER_NO_V="${VER#v}"
@@ -262,6 +263,97 @@ cat > "$CONFIG_FILE" <<EOF
 EOF
 
 echo "vless://$UUID@$(ip):$PORT?encryption=none&security=reality&flow=xtls-rprx-vision&pbk=$PBK&sid=$SHORTID&sni=$SNI#$REMARK"
+}
+
+mode_vmess() {
+    read -rp "节点备注: " REMARK
+    read -rp "端口(回车随机): " PORT
+    PORT=${PORT:-$(port)}
+    UUID=$(uuid)
+    read -rp "Alter ID (默认: 0): " ALTER_ID
+    ALTER_ID=${ALTER_ID:-0}
+
+    # 询问是否启用 TLS
+    echo -e "${YELLOW}是否启用 TLS? (y/N):${PLAIN}"
+    read -rp "选择: " USE_TLS
+    TLS_ENABLED=false
+    SNI=""
+    CERT_PATH=""
+    KEY_PATH=""
+    TLS_CONFIG=""
+
+    if [[ "$USE_TLS" =~ ^[Yy]$ ]]; then
+        TLS_ENABLED=true
+        read -rp "SNI (默认: www.example.com): " SNI_INPUT
+        SNI=${SNI_INPUT:-www.example.com}
+        generate_self_signed_cert "$SNI"
+        CERT_PATH="$CERT_DIR/cert.pem"
+        KEY_PATH="$CERT_DIR/key.pem"
+        TLS_CONFIG=",
+        \"tls\": {
+          \"enabled\": true,
+          \"server_name\": \"$SNI\",
+          \"certificate_path\": \"$CERT_PATH\",
+          \"key_path\": \"$KEY_PATH\"
+        }"
+    fi
+
+    # 构建 inbound JSON
+    if [ "$TLS_ENABLED" = true ]; then
+        # TLS 启用时
+        cat > "$CONFIG_FILE" <<EOF
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "type": "vmess",
+      "listen": "::",
+      "listen_port": $PORT,
+      "users": [
+        {
+          "uuid": "$UUID",
+          "alterId": $ALTER_ID
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "$SNI",
+        "certificate_path": "$CERT_DIR/cert.pem",
+        "key_path": "$CERT_DIR/key.pem"
+      }
+    }
+  ],
+  "outbounds": [{ "type": "direct" }]
+}
+EOF
+        # 生成带 TLS 的 VMess 链接 (Base64 格式)
+        VM_CONFIG="{\"v\":\"2\",\"ps\":\"$REMARK\",\"add\":\"$(ip)\",\"port\":\"$PORT\",\"id\":\"$UUID\",\"aid\":\"$ALTER_ID\",\"net\":\"tcp\",\"type\":\"none\",\"host\":\"\",\"path\":\"\",\"tls\":\"tls\",\"sni\":\"$SNI\",\"alpn\":\"\",\"fp\":\"\",\"scv\":\"true\"}"
+        echo "vmess://$(echo -n "$VM_CONFIG" | base64 -w0)"
+    else
+        # TLS 未启用时
+        cat > "$CONFIG_FILE" <<EOF
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "type": "vmess",
+      "listen": "::",
+      "listen_port": $PORT,
+      "users": [
+        {
+          "uuid": "$UUID",
+          "alterId": $ALTER_ID
+        }
+      ]
+    }
+  ],
+  "outbounds": [{ "type": "direct" }]
+}
+EOF
+        # 生成不带 TLS 的 VMess 链接 (Base64 格式)
+        VM_CONFIG="{\"v\":\"2\",\"ps\":\"$REMARK\",\"add\":\"$(ip)\",\"port\":\"$PORT\",\"id\":\"$UUID\",\"aid\":\"$ALTER_ID\",\"net\":\"tcp\",\"type\":\"none\",\"host\":\"\",\"path\":\"\",\"tls\":\"\",\"sni\":\"\",\"alpn\":\"\",\"fp\":\"\",\"scv\":\"false\"}"
+        echo "vmess://$(echo -n "$VM_CONFIG" | base64 -w0)"
+    fi
 }
 
 
@@ -515,156 +607,6 @@ EOF
     fi
 }
 
-mode_ss_to_vless() {
-    read -rp "输入远程 VLESS Reality 链接: " LINK
-
-    UUID=$(echo "$LINK" | sed -n 's|vless://\([^@]*\)@.*|\1|p')
-    HOST_PORT=$(echo "$LINK" | sed -n 's|.*@\([^?]*\).*|\1|p')
-    ADDR=${HOST_PORT%%:*}
-    RPORT=${HOST_PORT##*:}
-    PBK=$(echo "$LINK" | sed -n 's|.*[&?]pbk=\([^&]*\).*|\1|p')
-    SID=$(echo "$LINK" | sed -n 's|.*[&?]sid=\([^&]*\).*|\1|p')
-    SNI=$(echo "$LINK" | sed -n 's|.*[&?]sni=\([^&#]*\).*|\1|p')
-
-    # 如果没有提取到值，给出错误提示
-    if [ -z "$UUID" ] || [ -z "$ADDR" ] || [ -z "$PBK" ] || [ -z "$SNI" ]; then
-        echo -e "${RED}链接解析失败，请检查链接格式${PLAIN}"
-        return 1
-    fi
-
-    read -rp "本地 Shadowsocks 监听端口(回车随机): " LOCAL_PORT
-    LOCAL_PORT=${LOCAL_PORT:-$(port)}
-    read -rp "节点备注: " REMARK
-    REMARK=${REMARK:-SS-to-VLESS}
-
-    METHOD="2022-blake3-aes-128-gcm"
-    PASS=$(random_base64_16)
-
-cat > "$CONFIG_FILE" <<EOF
-{
-  "log": { "level": "info" },
-  "inbounds": [
-    {
-      "type": "shadowsocks",
-      "tag": "ss-in",
-      "listen": "::",
-      "listen_port": $LOCAL_PORT,
-      "method": "$METHOD",
-      "password": "$PASS"
-    }
-  ],
-  "outbounds": [
-    {
-      "type": "vless",
-      "tag": "vless-out",
-      "server": "$ADDR",
-      "server_port": $RPORT,
-      "uuid": "$UUID",
-      "flow": "xtls-rprx-vision",
-      "tls": {
-        "enabled": true,
-        "server_name": "$SNI",
-        "insecure": false,
-        "reality": {
-          "enabled": true,
-          "public_key": "$PBK",
-          "short_id": "$SID"
-        }
-      }
-    }
-  ]
-}
-EOF
-
-    SS_B64=$(echo -n "$METHOD:$PASS" | base64 -w0)
-    echo ""
-    echo -e "${GREEN}配置生成成功！${PLAIN}"
-    echo -e "${YELLOW}Shadowsocks 链接:${PLAIN}"
-    echo "ss://$SS_B64@$(ip):$LOCAL_PORT#$REMARK"
-}
-
-
-mode_vless_to_ss() {
-    read -rp "输入远程 Shadowsocks 链接: " SS_LINK
-
-    SS_CORE=${SS_LINK#ss://}
-    SS_AUTH=${SS_CORE%@*}
-    SS_DECODE=$(echo "$SS_AUTH" | base64 -d 2>/dev/null)
-
-    if [ -z "$SS_DECODE" ]; then
-        echo -e "${RED}Shadowsocks 链接解析失败${PLAIN}"
-        return 1
-    fi
-
-    METHOD=${SS_DECODE%%:*}
-    PASS=${SS_DECODE#*:}
-
-    HOST_PORT=${SS_CORE#*@}
-    HOST_PORT=${HOST_PORT%%#*}
-    ADDR=${HOST_PORT%%:*}
-    RPORT=${HOST_PORT##*:}
-
-    read -rp "本地 VLESS Reality 端口(回车随机): " LOCAL_PORT
-    LOCAL_PORT=${LOCAL_PORT:-$(port)}
-    read -rp "节点备注: " REMARK
-    REMARK=${REMARK:-VLESS-to-SS}
-
-    UUID=$(uuid)
-    KEYS=$($SING_BIN generate reality-keypair)
-    PRI=$(echo "$KEYS" | awk '/PrivateKey/ {print $2}')
-    PBK=$(echo "$KEYS" | awk '/PublicKey/ {print $2}')
-    SHORTID=$(openssl rand -hex 4)
-    SNI="addons.mozilla.org"
-
-cat > "$CONFIG_FILE" <<EOF
-{
-  "log": { "level": "info" },
-  "inbounds": [
-    {
-      "type": "vless",
-      "tag": "vless-in",
-      "listen": "::",
-      "listen_port": $LOCAL_PORT,
-      "users": [
-        {
-          "uuid": "$UUID",
-          "flow": "xtls-rprx-vision"
-        }
-      ],
-      "tls": {
-        "enabled": true,
-        "server_name": "$SNI",
-        "reality": {
-          "enabled": true,
-          "handshake": {
-            "server": "$SNI",
-            "server_port": 443
-          },
-          "private_key": "$PRI",
-          "short_id": ["$SHORTID"]
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "type": "shadowsocks",
-      "tag": "ss-out",
-      "server": "$ADDR",
-      "server_port": $RPORT,
-      "method": "$METHOD",
-      "password": "$PASS"
-    }
-  ]
-}
-EOF
-
-    echo ""
-    echo -e "${GREEN}配置生成成功！${PLAIN}"
-    echo -e "${YELLOW}VLESS Reality 链接:${PLAIN}"
-    echo "vless://$UUID@$(ip):$LOCAL_PORT?encryption=none&security=reality&flow=xtls-rprx-vision&pbk=$PBK&sid=$SHORTID&sni=$SNI#$REMARK"
-}
-
 
 enable_bbr() {
     cat > /etc/sysctl.d/99-bbr.conf <<'EOF'
@@ -693,17 +635,16 @@ main_menu() {
         echo " 5) Hysteria2"
         echo " 6) AnyTLS"
         echo " 7) Socks5"
-        echo " 8) SS → VLESS-reality 中继"
-        echo " 9) VLESS-reality → SS 中继"
-        echo "10) 显示配置文件路径"
-        echo "11) 开启 BBR"
-        echo "12) 重启 sing-box"
-        echo "13) 停止 sing-box"
-        echo "14) 卸载 sing-box"
+        echo " 8) VMess"
+        echo " 9) 显示配置文件路径"
+        echo "10) 开启 BBR"
+        echo "11) 重启 sing-box"
+        echo "12) 停止 sing-box"
+        echo "13) 卸载 sing-box"
         echo " 0) 退出"
         echo -e "${BLUE}====================================${PLAIN}"
 
-        read -rp "请输入选项 [0-14]: " choice
+        read -rp "请输入选项 [0-13]: " choice
 
         case "$choice" in
             1) mode_vless_reality; service_restart ;;
@@ -713,13 +654,12 @@ main_menu() {
             5) mode_hysteria2; service_restart ;;
             6) mode_anytls; service_restart ;;
             7) mode_socks; service_restart ;;
-            8) mode_ss_to_vless; service_restart ;;
-            9) mode_vless_to_ss; service_restart ;;
-            10) show_config_path ;;
-            11) enable_bbr ;;
-            12) service_restart ;;
-            13) stop_singbox ;;
-            14) uninstall_singbox; exit 0 ;;
+            8) mode_vmess; service_restart ;;
+            9) show_config_path ;;
+            10) enable_bbr ;;
+            11) service_restart ;;
+            12) stop_singbox ;;
+            13) uninstall_singbox; exit 0 ;;
             0) exit 0 ;;
             *) echo -e "${RED}无效选项${PLAIN}" ;;
         esac
