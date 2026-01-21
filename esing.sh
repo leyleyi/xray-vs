@@ -47,6 +47,10 @@ random_base64_32() {
     openssl rand -base64 32 | tr -d '\n\r=+/' | cut -c1-43
 }
 
+random_base64_16() {
+    openssl rand -base64 16 | tr -d '\n='
+}
+
 # ---------------- 生成自签名证书 ----------------
 generate_self_signed_cert() {
     local domain=$1
@@ -282,7 +286,10 @@ mode_shadowsocks() {
         *) METHOD="2022-blake3-aes-128-gcm" ;;
     esac
 
-    if [[ $METHOD == 2022-blake3-* ]]; then
+    if [[ $METHOD == "2022-blake3-aes-128-gcm" ]]; then
+        PASS=$(random_base64_16)
+        echo "密钥 (16字节 base64): $PASS"
+    elif [[ $METHOD == "2022-blake3-aes-256-gcm" ]]; then
         PASS=$(random_base64_32)
         echo "密钥 (32字节 base64): $PASS"
     else
@@ -531,7 +538,7 @@ mode_ss_to_vless() {
     REMARK=${REMARK:-SS-to-VLESS}
 
     METHOD="2022-blake3-aes-128-gcm"
-    PASS=$(random_base64_32)
+    PASS=$(random_base64_16)
 
 cat > "$CONFIG_FILE" <<EOF
 {
