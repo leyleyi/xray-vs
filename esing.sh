@@ -273,7 +273,6 @@ mode_vmess() {
     read -rp "Alter ID (默认: 0): " ALTER_ID
     ALTER_ID=${ALTER_ID:-0}
 
-    # 询问是否启用 TLS
     echo -e "${YELLOW}是否启用 TLS? (y/N):${PLAIN}"
     read -rp "选择: " USE_TLS
     TLS_ENABLED=false
@@ -284,8 +283,8 @@ mode_vmess() {
 
     if [[ "$USE_TLS" =~ ^[Yy]$ ]]; then
         TLS_ENABLED=true
-        read -rp "SNI (默认: www.example.com): " SNI_INPUT
-        SNI=${SNI_INPUT:-www.example.com}
+        read -rp "SNI(默认:addons.mozilla.org):" SNI_INPUT
+        SNI=${SNI_INPUT:-addons.mozilla.org}
         generate_self_signed_cert "$SNI"
         CERT_PATH="$CERT_DIR/cert.pem"
         KEY_PATH="$CERT_DIR/key.pem"
@@ -298,9 +297,7 @@ mode_vmess() {
         }"
     fi
 
-    # 构建 inbound JSON
     if [ "$TLS_ENABLED" = true ]; then
-        # TLS 启用时
         cat > "$CONFIG_FILE" <<EOF
 {
   "log": { "level": "info" },
