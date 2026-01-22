@@ -628,7 +628,7 @@ kernel.sched_autogroup_enabled = 0
 kernel.numa_balancing = 0
 EOF
 
-    sysctl -p && sysctl --system
+    sysctl --system
 
     echo -e "${GREEN}BBR 已启用(需重启系统生效)${PLAIN}"
 }
