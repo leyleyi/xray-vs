@@ -602,7 +602,7 @@ EOF
 enable_bbr() {
   #swappiness 5/10
     cat > /etc/sysctl.conf << EOF
-vm.swappiness = 5
+vm.swappiness = 10
 vm.dirty_ratio = 15
 vm.dirty_background_ratio = 5
 vm.overcommit_memory = 1
