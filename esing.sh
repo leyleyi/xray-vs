@@ -1,7 +1,6 @@
 #!/bin/bash
 # =========================================================
 # ESING - sing-box 一键管理脚本 - Powered by Leyi
-# Modified: Removed relay modes, Added VMess mode
 # =========================================================
 
 RED='\033[0;31m'
@@ -602,7 +601,7 @@ EOF
 
 enable_bbr() {
   #swappiness 5/10
-cat > /etc/sysctl.conf << EOF
+    cat > /etc/sysctl.conf << EOF
 vm.swappiness = 5
 vm.dirty_ratio = 15
 vm.dirty_background_ratio = 5
@@ -628,7 +627,7 @@ vm.vfs_cache_pressure = 30
 kernel.sched_autogroup_enabled = 0
 kernel.numa_balancing = 0
 EOF
-sysctl -p && sysctl --system
+
     sysctl -p && sysctl --system
 
     echo -e "${GREEN}BBR 已启用(需重启系统生效)${PLAIN}"
