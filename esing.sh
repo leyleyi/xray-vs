@@ -261,7 +261,7 @@ cat > "$CONFIG_FILE" <<EOF
 }
 EOF
 
-echo "vless://$UUID@$(ip):$PORT?encryption=none&security=reality&flow=xtls-rprx-vision&pbk=$PBK&sid=$SHORTID&sni=$SNI#$REMARK"
+echo "vless://$UUID@$(ip):$PORT?encryption=none&security=reality&flow=xtls-rprx-vision&pbk=$PBK&sid=$SHORTID&fp=chrome&sni=$SNI#$REMARK"
 }
 
 mode_vmess() {
